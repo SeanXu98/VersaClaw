@@ -1,0 +1,61 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+.next/
+dist/
+build/
+out/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+logs/
+automation-logs/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Certificates (self-signed HTTPS)
+certificates/
+
+# Development files
+dev.log
+console.txt
+
+# Test files
+coverage/
+.nyc_output/
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# Playwright MCP
+.playwright-mcp/
+
+# Screenshots (keep in docs if needed)
+*.png
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+*.egg-info/

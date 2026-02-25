@@ -1,0 +1,78 @@
+# Nanobot-Swarm Docker Compose
+# 一键部署前后端服务
+
+version: '3.8'
+
+services:
+  # ============================================
+  # Backend Service - Nanobot API Server
+  # ============================================
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    image: nanobot-swarm-backend:latest
+    container_name: nanobot-backend
+    restart: unless-stopped
+    ports:
+      - "18790:18790"
+    volumes:
+      # Persist Nanobot configuration and data
+      - nanobot-data:/root/.nanobot
+      # Or mount from host (choose one):
+      # - ~/.nanobot:/root/.nanobot
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONUTF8=1
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:18790/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - nanobot-network
+
+  # ============================================
+  # Frontend Service - Next.js Web UI
+  # ============================================
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    image: nanobot-swarm-frontend:latest
+    container_name: nanobot-frontend
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_APP_NAME=Nanobot-Swarm
+      - NEXT_PUBLIC_APP_DESCRIPTION=Nanobot AI Agent 可视化管理平台
+      # Backend API URL (use service name for Docker networking)
+      - NANOBOT_API_URL=http://backend:18790
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    networks:
+      - nanobot-network
+
+# ============================================
+# Networks
+# ============================================
+networks:
+  nanobot-network:
+    driver: bridge
+
+# ============================================
+# Volumes
+# ============================================
+volumes:
+  nanobot-data:
+    driver: local

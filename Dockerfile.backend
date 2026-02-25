@@ -1,0 +1,55 @@
+# Nanobot Backend Dockerfile
+# Python FastAPI server for Nanobot AI Agent
+
+FROM python:3.11-slim
+
+LABEL maintainer="Nanobot-Swarm"
+LABEL description="Nanobot API Server - FastAPI backend for AI Agent management"
+
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONUTF8=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    curl \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set working directory
+WORKDIR /app
+
+# Copy nanobot source code first
+COPY backend/nanobot/nanobot-main /app/nanobot
+
+# Install nanobot and its dependencies
+RUN pip install -e /app/nanobot
+
+# Install additional dependencies for API server
+RUN pip install --no-cache-dir \
+    fastapi>=0.100.0 \
+    uvicorn[standard]>=0.23.0 \
+    python-multipart>=0.0.6
+
+# Copy API server
+COPY backend/api_server.py /app/api_server.py
+COPY backend/requirements.txt /app/requirements.txt
+
+# Create nanobot data directory structure
+RUN mkdir -p /root/.nanobot/sessions \
+    && mkdir -p /root/.nanobot/workspace/memory \
+    && mkdir -p /root/.nanobot/workspace/skills
+
+# Expose port
+EXPOSE 18790
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:18790/health || exit 1
+
+# Run the API server
+CMD ["python", "-u", "api_server.py"]

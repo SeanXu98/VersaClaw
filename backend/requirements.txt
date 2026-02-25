@@ -1,0 +1,34 @@
+# Nanobot Backend Requirements
+# Python dependencies for api_server.py
+
+# FastAPI framework and server
+fastapi>=0.100.0
+uvicorn[standard]>=0.23.0
+python-multipart>=0.0.6
+
+# HTTP client
+httpx[socks]>=0.25.0
+
+# These are installed from the nanobot package itself
+# Listed here for reference and development
+typer>=0.9.0
+litellm>=1.0.0
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+websockets>=12.0
+websocket-client>=1.6.0
+loguru>=0.7.0
+readability-lxml>=0.8.0
+rich>=13.0.0
+croniter>=2.0.0
+dingtalk-stream>=0.4.0
+python-telegram-bot[socks]>=21.0
+lark-oapi>=1.0.0
+socksio>=1.0.0
+python-socketio>=5.11.0
+msgpack>=1.0.8
+slack-sdk>=3.26.0
+qq-botpy>=1.0.0
+python-socks[asyncio]>=2.4.0
+prompt-toolkit>=3.0.0
+mcp>=1.0.0
