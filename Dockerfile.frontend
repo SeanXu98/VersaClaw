@@ -1,5 +1,5 @@
-# NanoClaw Frontend Dockerfile
-# Next.js application for NanoClaw UI
+# VersaClaw Frontend Dockerfile
+# Next.js application for VersaClaw UI
 
 # Stage 1: Dependencies
 FROM node:20-alpine AS deps
