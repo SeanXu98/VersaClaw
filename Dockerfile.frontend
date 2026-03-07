@@ -44,13 +44,11 @@ ENV NODE_ENV=production \
 RUN addgroup --system --gid 1001 nodejs \
     && adduser --system --uid 1001 nextjs
 
-# Copy necessary files
-COPY --from=builder /app/public ./public
+# Copy necessary files (public directory is optional)
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
-
-# Set correct permissions
-RUN chown -R nextjs:nodejs /app
+# Create public directory if not exists
+RUN mkdir -p ./public && chown -R nextjs:nodejs /app
 
 # Switch to non-root user
 USER nextjs

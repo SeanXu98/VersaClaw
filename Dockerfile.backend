@@ -23,21 +23,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Set working directory
 WORKDIR /app
 
-# Copy nanobot source code first
-COPY backend/nanobot/nanobot-main /app/nanobot
+# Copy requirements first for better caching
+COPY backend/requirements.txt /app/requirements.txt
 
-# Install nanobot and its dependencies
-RUN pip install -e /app/nanobot
-
-# Install additional dependencies for API server
-RUN pip install --no-cache-dir \
-    fastapi>=0.100.0 \
-    uvicorn[standard]>=0.23.0 \
-    python-multipart>=0.0.6
+# Install Python dependencies (nanobot-ai from PyPI)
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy API server
 COPY backend/api_server.py /app/api_server.py
-COPY backend/requirements.txt /app/requirements.txt
 
 # Create nanobot data directory structure
 RUN mkdir -p /root/.nanobot/sessions \

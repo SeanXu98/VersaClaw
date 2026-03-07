@@ -12,10 +12,6 @@ from pathlib import Path
 from typing import Optional
 import uvicorn
 
-# 添加 nanobot-main 到 Python 路径
-nanobot_path = Path(__file__).parent / "nanobot" / "nanobot-main"
-sys.path.insert(0, str(nanobot_path))
-
 try:
     from fastapi import FastAPI, HTTPException
     from fastapi.middleware.cors import CORSMiddleware
@@ -30,13 +26,13 @@ except ImportError:
     from fastapi.responses import StreamingResponse
     from pydantic import BaseModel
 
-# 导入 nanobot 模块
+# 导入 nanobot 模块 (通过 pip install nanobot-ai 安装)
 try:
     from nanobot.config.loader import load_config
     from nanobot.bus.queue import MessageBus
     from nanobot.agent.loop import AgentLoop
 except ImportError:
-    print("Nanobot modules not found. Please check the installation.")
+    print("Nanobot modules not found. Please install: pip install nanobot-ai")
     sys.exit(1)
 
 app = FastAPI(title="Nanobot API Server", version="0.1.0")
