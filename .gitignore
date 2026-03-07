@@ -27,8 +27,15 @@ automation-logs/
 .env.local
 .env.*.local
 
-# Certificates (self-signed HTTPS)
+# Security - Certificates and Keys
 certificates/
+*.pem
+*.key
+secrets/
+.secrets/
+credentials.json
+*.p12
+*.pfx
 
 # Development files
 dev.log
@@ -59,3 +66,7 @@ __pycache__/
 venv/
 ENV/
 *.egg-info/
+
+# Nanobot config (contains API keys)
+# Note: config.json is stored in ~/.nanobot/ and should NOT be committed
+config.json
