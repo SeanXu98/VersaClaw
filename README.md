@@ -1,8 +1,8 @@
-# NanoClaw
+# VersaClaw
 
 <div align="center">
-  <h3>Nanobot AI Agent 可视化管理平台</h3>
-  <p>一个现代化的 Web 前端，用于管理和监控 <a href="https://github.com/HKUDS/nanobot">Nanobot</a> AI Agent</p>
+  <h3>多模态 AI Agent 可视化管理平台</h3>
+  <p>基于 <a href="https://github.com/HKUDS/nanobot">Nanobot</a> 的现代化 Web 管理界面，支持文本、语音、图像等多模态交互</p>
 
   <p>
     <img src="https://img.shields.io/badge/Next.js-16-black?style=flat&logo=next.js" alt="Next.js">
@@ -20,7 +20,11 @@
 
 ## 简介
 
-NanoClaw 是基于 [Nanobot](https://github.com/HKUDS/nanobot)（港大开源的轻量级 AI Agent）开发的可视化管理平台。它提供了友好的 Web 界面来配置 LLM 提供商、管理会话、与 AI 进行对话交互，无需修改 Nanobot 源码即可实现完整的可视化管理。
+**VersaClaw** (/ˈvɜːrsə klɔː/) 是基于 [Nanobot](https://github.com/HKUDS/nanobot)（港大开源的轻量级 AI Agent）开发的多模态可视化管理平台。
+
+> **Versa** 源自 Latin "versatilis"，意为多面、通用、灵活；**Claw** 延续了 Nanobot 生态的"爪"概念，象征精准与力量。
+
+它提供了友好的 Web 界面来配置 LLM 提供商、管理会话、与 AI 进行对话交互，无需修改 Nanobot 源码即可实现完整的可视化管理。未来将支持语音、图像等多模态交互能力。
 
 ### 核心特性
 
@@ -30,6 +34,7 @@ NanoClaw 是基于 [Nanobot](https://github.com/HKUDS/nanobot)（港大开源的
 - 🚀 **实时流式输出** - SSE 支持，实时显示 AI 响应
 - 🔧 **灵活配置** - 支持 15+ LLM 提供商
 - 🎨 **现代化 UI** - Glass-morphism 设计风格
+- 🔮 **多模态规划** - 架构预留语音、图像等多模态扩展能力
 
 ---
 
@@ -37,7 +42,7 @@ NanoClaw 是基于 [Nanobot](https://github.com/HKUDS/nanobot)（港大开源的
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                        NanoClaw                             │
+│                       VersaClaw                              │
 ├─────────────────────────────────────────────────────────────┤
 │                                                             │
 │  ┌─────────────────┐     ┌─────────────────────────────┐   │
@@ -71,6 +76,7 @@ NanoClaw 是基于 [Nanobot](https://github.com/HKUDS/nanobot)（港大开源的
 - [项目结构](#项目结构)
 - [API 文档](#api-文档)
 - [开发指南](#开发指南)
+- [路线图](#路线图)
 - [常见问题](#常见问题)
 
 ---
@@ -145,8 +151,8 @@ NanoClaw 是基于 [Nanobot](https://github.com/HKUDS/nanobot)（港大开源的
 #### 1. 克隆仓库
 
 ```bash
-git clone https://github.com/SeanXu98/NanoClaw.git
-cd NanoClaw
+git clone https://github.com/SeanXu98/VersaClaw.git
+cd VersaClaw
 ```
 
 #### 2. 一键启动
@@ -235,8 +241,8 @@ npm start
 
 ```bash
 # 在项目根目录执行
-docker build -f Dockerfile.backend -t nanoclaw-backend .
-docker build -f Dockerfile.frontend -t nanoclaw-frontend .
+docker build -f Dockerfile.backend -t versaclaw-backend .
+docker build -f Dockerfile.frontend -t versaclaw-frontend .
 ```
 
 **运行容器：**
@@ -244,17 +250,17 @@ docker build -f Dockerfile.frontend -t nanoclaw-frontend .
 ```bash
 # 运行后端
 docker run -d \
-  --name nanoclaw-backend \
+  --name versaclaw-backend \
   -p 18790:18790 \
   -v ~/.nanobot:/root/.nanobot \
-  nanoclaw-backend
+  versaclaw-backend
 
 # 运行前端
 docker run -d \
-  --name nanoclaw-frontend \
+  --name versaclaw-frontend \
   -p 5000:5000 \
   -e NANOBOT_API_URL=http://host.docker.internal:18790 \
-  nanoclaw-frontend
+  versaclaw-frontend
 ```
 
 ---
@@ -269,7 +275,7 @@ docker run -d \
 | `NANOBOT_API_URL` | 后端 API 地址 | `http://localhost:18790` |
 | `NANOBOT_API_HOST` | 后端监听地址 | `0.0.0.0` |
 | `NANOBOT_API_PORT` | 后端端口 | `18790` |
-| `NEXT_PUBLIC_APP_NAME` | 应用名称 | NanoClaw |
+| `NEXT_PUBLIC_APP_NAME` | 应用名称 | VersaClaw |
 
 ### Nanobot 配置
 
@@ -291,7 +297,7 @@ nanobot onboard
 ## 项目结构
 
 ```
-NanoClaw/
+VersaClaw/
 ├── frontend/                    # 前端项目 (Next.js)
 │   ├── app/                     # 页面和 API 路由
 │   │   ├── api/                 # API 代理层
@@ -408,6 +414,26 @@ docker compose build
 
 ---
 
+## 路线图
+
+### v0.1.x (当前)
+- [x] 文本对话
+- [x] 多 LLM 提供商支持
+- [x] 会话管理
+- [x] 技能/记忆管理
+
+### v0.2.x (计划中)
+- [ ] 语音输入/输出
+- [ ] 图像理解
+- [ ] 文件上传处理
+
+### v0.3.x (未来)
+- [ ] 视频理解
+- [ ] 实时语音对话
+- [ ] 多模态 Agent 编排
+
+---
+
 ## 常见问题
 
 ### Q: 如何配置 API Key？
@@ -457,5 +483,5 @@ MIT License
 ---
 
 <p align="center">
-  <sub>基于 <a href="https://github.com/HKUDS/nanobot">Nanobot</a> 构建</sub>
+  <sub>基于 <a href="https://github.com/HKUDS/nanobot">Nanobot</a> 构建 | 多模态 AI Agent 平台</sub>
 </p>

@@ -1,4 +1,4 @@
-# NanoClaw Docker Compose
+# VersaClaw Docker Compose
 # 一键部署前后端服务
 
 services:
@@ -9,14 +9,14 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.backend
-    image: nanoclaw-backend:latest
-    container_name: nanoclaw-backend
+    image: versaclaw-backend:latest
+    container_name: versaclaw-backend
     restart: unless-stopped
     ports:
       - "18790:18790"
     volumes:
       # Persist Nanobot configuration and data
-      - nanoclaw-data:/root/.nanobot
+      - versaclaw-data:/root/.nanobot
       # Or mount from host (choose one):
       # - ~/.nanobot:/root/.nanobot
     environment:
@@ -29,7 +29,7 @@ services:
       retries: 3
       start_period: 10s
     networks:
-      - nanoclaw-network
+      - versaclaw-network
 
   # ============================================
   # Frontend Service - Next.js Web UI
@@ -38,15 +38,15 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.frontend
-    image: nanoclaw-frontend:latest
-    container_name: nanoclaw-frontend
+    image: versaclaw-frontend:latest
+    container_name: versaclaw-frontend
     restart: unless-stopped
     ports:
       - "5000:5000"
     environment:
       - NODE_ENV=production
-      - NEXT_PUBLIC_APP_NAME=NanoClaw
-      - NEXT_PUBLIC_APP_DESCRIPTION=Nanobot AI Agent 可视化管理平台
+      - NEXT_PUBLIC_APP_NAME=VersaClaw
+      - NEXT_PUBLIC_APP_DESCRIPTION=多模态 AI Agent 可视化管理平台
       # Backend API URL (use service name for Docker networking)
       - NANOBOT_API_URL=http://backend:18790
     depends_on:
@@ -59,18 +59,18 @@ services:
       retries: 3
       start_period: 15s
     networks:
-      - nanoclaw-network
+      - versaclaw-network
 
 # ============================================
 # Networks
 # ============================================
 networks:
-  nanoclaw-network:
+  versaclaw-network:
     driver: bridge
 
 # ============================================
 # Volumes
 # ============================================
 volumes:
-  nanoclaw-data:
+  versaclaw-data:
     driver: local

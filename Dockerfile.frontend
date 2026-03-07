@@ -4,8 +4,8 @@
 # Stage 1: Dependencies
 FROM node:20-alpine AS deps
 
-LABEL maintainer="NanoClaw"
-LABEL description="NanoClaw Frontend - Next.js UI for Nanobot AI Agent management"
+LABEL maintainer="VersaClaw"
+LABEL description="VersaClaw Frontend - Next.js UI for multi-modal AI Agent management"
 
 # Install dependencies only when needed
 WORKDIR /app

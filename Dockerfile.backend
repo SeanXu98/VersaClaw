@@ -1,10 +1,10 @@
-# NanoClaw Backend Dockerfile
+# VersaClaw Backend Dockerfile
 # Python FastAPI server for Nanobot AI Agent
 
 FROM python:3.11-slim
 
-LABEL maintainer="NanoClaw"
-LABEL description="NanoClaw Backend - FastAPI server for Nanobot AI Agent management"
+LABEL maintainer="VersaClaw"
+LABEL description="VersaClaw Backend - FastAPI server for multi-modal AI Agent management"
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \

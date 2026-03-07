@@ -2,8 +2,8 @@ import type { Metadata } from "next"
 import "./globals.css"
 
 export const metadata: Metadata = {
-  title: "Nanobot-Swarm",
-  description: "Nanobot AI Agent 可视化管理前端",
+  title: "VersaClaw",
+  description: "多模态 AI Agent 可视化管理平台",
 }
 
 export default function RootLayout({
