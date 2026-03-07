@@ -2,7 +2,7 @@
 
 <div align="center">
   <h3>基于Nanobot实现的 AI Agent</h3>
-  <p>基于 <a href="https://github.com/HKUDS/nanobot">Nanobot</a> 的现代化 Web 管理界面，支持文本、语音、图像等多模态交互</p>
+  <p>基于 <a href="https://github.com/HKUDS/nanobot">Nanobot</a> 的AI Agent，具备现代化 Web 管理界面，未来将支持图像、语音、视频等多模态交互</p>
 
   <p>
     <img src="https://img.shields.io/badge/Next.js-16-black?style=flat&logo=next.js" alt="Next.js">
