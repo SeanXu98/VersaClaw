@@ -1,11 +1,11 @@
-# Nanobot Frontend Dockerfile
-# Next.js application for Nanobot-Swarm UI
+# NanoClaw Frontend Dockerfile
+# Next.js application for NanoClaw UI
 
 # Stage 1: Dependencies
 FROM node:20-alpine AS deps
 
-LABEL maintainer="Nanobot-Swarm"
-LABEL description="Nanobot-Swarm Frontend - Next.js UI for AI Agent management"
+LABEL maintainer="NanoClaw"
+LABEL description="NanoClaw Frontend - Next.js UI for Nanobot AI Agent management"
 
 # Install dependencies only when needed
 WORKDIR /app

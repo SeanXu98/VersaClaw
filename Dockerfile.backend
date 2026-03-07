@@ -1,10 +1,10 @@
-# Nanobot Backend Dockerfile
+# NanoClaw Backend Dockerfile
 # Python FastAPI server for Nanobot AI Agent
 
 FROM python:3.11-slim
 
-LABEL maintainer="Nanobot-Swarm"
-LABEL description="Nanobot API Server - FastAPI backend for AI Agent management"
+LABEL maintainer="NanoClaw"
+LABEL description="NanoClaw Backend - FastAPI server for Nanobot AI Agent management"
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
