@@ -53,9 +53,6 @@ coverage/
 # Playwright MCP
 .playwright-mcp/
 
-# Screenshots (keep in docs if needed)
-*.png
-
 # Python
 __pycache__/
 *.py[cod]
@@ -70,3 +67,7 @@ ENV/
 # Nanobot config (contains API keys)
 # Note: config.json is stored in ~/.nanobot/ and should NOT be committed
 config.json
+
+# Node.js package lock (auto-generated, commit only when necessary)
+# Uncomment if you want to track it:
+# !package-lock.json
