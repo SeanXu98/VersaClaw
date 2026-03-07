@@ -1,7 +1,7 @@
 # VersaClaw
 
 <div align="center">
-  <h3>多模态 AI Agent 可视化管理平台</h3>
+  <h3>基于Nanobot实现的 AI Agent</h3>
   <p>基于 <a href="https://github.com/HKUDS/nanobot">Nanobot</a> 的现代化 Web 管理界面，支持文本、语音、图像等多模态交互</p>
 
   <p>
@@ -20,9 +20,7 @@
 
 ## 简介
 
-**VersaClaw** (/ˈvɜːrsə klɔː/) 是基于 [Nanobot](https://github.com/HKUDS/nanobot)（港大开源的轻量级 AI Agent）开发的多模态可视化管理平台。
-
-> **Versa** 源自 Latin "versatilis"，意为多面、通用、灵活；**Claw** 延续了 Nanobot 生态的"爪"概念，象征精准与力量。
+**VersaClaw** (/ˈvɜːrsə klɔː/) 是基于 [Nanobot](https://github.com/HKUDS/nanobot)（港大开源的轻量级 AI Agent）开发的Agent。
 
 它提供了友好的 Web 界面来配置 LLM 提供商、管理会话、与 AI 进行对话交互，无需修改 Nanobot 源码即可实现完整的可视化管理。未来将支持语音、图像等多模态交互能力。
 
@@ -34,7 +32,7 @@
 - 🚀 **实时流式输出** - SSE 支持，实时显示 AI 响应
 - 🔧 **灵活配置** - 支持 15+ LLM 提供商
 - 🎨 **现代化 UI** - Glass-morphism 设计风格
-- 🔮 **多模态规划** - 架构预留语音、图像等多模态扩展能力
+- 🔮 **多模态规划** - 未来计划支持图像、语音等多模态扩展能力（建设中）
 
 ---
 
@@ -422,12 +420,12 @@ docker compose build
 - [x] 会话管理
 - [x] 技能/记忆管理
 
-### v0.2.x (计划中)
-- [ ] 语音输入/输出
+### v0.2.x (建设中)
 - [ ] 图像理解
+- [ ] 语音输入/输出
 - [ ] 文件上传处理
 
-### v0.3.x (未来)
+### v0.3.x (建设中)
 - [ ] 视频理解
 - [ ] 实时语音对话
 - [ ] 多模态 Agent 编排
