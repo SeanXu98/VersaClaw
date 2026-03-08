@@ -2,9 +2,9 @@
   "name": "versaclaw",
   "version": "0.1.0",
   "private": true,
-  "description": "VersaClaw - 多模态 AI Agent 可视化管理平台",
+  "description": "VersaClaw - 基于Nanobot扩展的AI Agent",
   "scripts": {
-    "dev": "next dev --experimental-https -p 5000",
+    "dev": "next dev -p 5000",
     "dev:webpack": "next dev -p 5000",
     "dev:plain": "next dev -p 5000",
     "build": "next build",

@@ -46,7 +46,7 @@ services:
     environment:
       - NODE_ENV=production
       - NEXT_PUBLIC_APP_NAME=VersaClaw
-      - NEXT_PUBLIC_APP_DESCRIPTION=多模态 AI Agent 可视化管理平台
+      - NEXT_PUBLIC_APP_DESCRIPTION=基于Nanobot扩展的AI Agent
       # Backend API URL (use service name for Docker networking)
       - NANOBOT_API_URL=http://backend:18790
     depends_on:

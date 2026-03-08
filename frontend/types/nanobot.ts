@@ -218,6 +218,7 @@ export interface SessionMessage {
   content: string
   timestamp?: string
   tools_used?: string[]
+  images?: UploadedImage[]  // 用户消息中的图片
 }
 
 /**
@@ -253,6 +254,7 @@ export type Session = SessionInfo
 export interface ModelInfo {
   provider: string
   models: string[]
+  vision_models?: string[]  // 支持 Vision 的模型列表
 }
 
 /**
@@ -431,6 +433,8 @@ export interface ProviderMeta {
   status: 'active' | 'inactive' | 'error'
   last_test?: string
   test_result?: string
+  configured_models?: string[]  // 已配置的模型列表
+  vision_models_count?: number  // 已配置的 Vision 模型数量
 }
 
 /**
@@ -486,11 +490,13 @@ export interface ApiResponse<T> {
  * Streaming event types from the backend
  */
 export type StreamEventType =
+  | 'start'
   | 'content'
   | 'reasoning'
   | 'tool_call_start'
   | 'tool_call_end'
   | 'iteration_start'
+  | 'heartbeat'
   | 'done'
   | 'error'
 
@@ -499,6 +505,13 @@ export type StreamEventType =
  */
 export interface BaseStreamEvent {
   type: StreamEventType
+}
+
+/**
+ * Start stream event - processing started
+ */
+export interface StartStreamEvent extends BaseStreamEvent {
+  type: 'start'
 }
 
 /**
@@ -524,7 +537,7 @@ export interface ToolCallStartEvent extends BaseStreamEvent {
   type: 'tool_call_start'
   tool_id: string
   name: string
-  arguments: Record<string, any>
+  arguments: string | Record<string, any>  // 可能是字符串或对象
 }
 
 /**
@@ -547,12 +560,22 @@ export interface IterationStartEvent extends BaseStreamEvent {
 }
 
 /**
+ * Heartbeat event - sent periodically during processing
+ */
+export interface HeartbeatStreamEvent extends BaseStreamEvent {
+  type: 'heartbeat'
+  status: 'processing'
+}
+
+/**
  * Processing complete event
  */
 export interface DoneStreamEvent extends BaseStreamEvent {
   type: 'done'
   content: string
-  tools_used: string[]
+  tools_used?: string[]
+  reasoning_content?: string  // 推理内容（如果有）
+  thinking_blocks?: any[]     // 思考块（如果有）
 }
 
 /**
@@ -567,11 +590,13 @@ export interface ErrorStreamEvent extends BaseStreamEvent {
  * Union type for all stream events
  */
 export type StreamEvent =
+  | StartStreamEvent
   | ContentStreamEvent
   | ReasoningStreamEvent
   | ToolCallStartEvent
   | ToolCallEndEvent
   | IterationStartEvent
+  | HeartbeatStreamEvent
   | DoneStreamEvent
   | ErrorStreamEvent
 
@@ -597,6 +622,8 @@ export interface StreamingMessage extends SessionMessage {
   toolCalls?: ToolCallState[]
   currentIteration?: number
   maxIterations?: number
+  agentTasks?: string[]           // Agent 任务列表
+  completedTasks?: string[]       // 已完成的任务
 }
 
 /**
@@ -607,4 +634,84 @@ export interface ChatState {
   isStreaming: boolean
   currentMessage: StreamingMessage | null
   error: string | null
+}
+
+// ============================================================================
+// Image Upload Types (多模态图片上传)
+// ============================================================================
+
+/**
+ * 上传后的图片信息
+ */
+export interface UploadedImage {
+  id: string              // UUID
+  filename: string        // 原始文件名
+  url: string             // 访问 URL: /api/upload/image/{id}
+  thumbnail_url?: string  // 缩略图 URL
+  size: number            // 文件大小 (bytes)
+  mime_type: string       // MIME 类型
+  width?: number          // 图片宽度
+  height?: number         // 图片高度
+}
+
+/**
+ * 图片上传响应
+ */
+export interface UploadImageResponse {
+  success: boolean
+  data?: UploadedImage
+  error?: string
+}
+
+/**
+ * 多模态聊天请求
+ */
+export interface MultimodalChatRequest {
+  message: string
+  session_key?: string
+  model?: string
+  images?: UploadedImage[]
+}
+
+/**
+ * 多模态消息内容块 (OpenAI 格式)
+ */
+export type ContentBlock =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string } }
+
+/**
+ * 扩展的会话消息（支持图片）
+ */
+export interface MultimodalSessionMessage {
+  role: 'user' | 'assistant' | 'system'
+  content: string | ContentBlock[]
+  timestamp?: string
+  tools_used?: string[]
+  images?: UploadedImage[]  // 用户消息中的图片
+}
+
+/**
+ * 图片处理状态事件
+ */
+export interface ImageProcessingEvent {
+  type: 'image_processing'
+  image_id: string
+  status: 'processing' | 'completed' | 'error'
+}
+
+/**
+ * 扩展 StreamEvent 以包含图片处理事件
+ */
+export type ExtendedStreamEvent =
+  | StreamEvent
+  | ImageProcessingEvent
+
+/**
+ * 模型能力信息
+ */
+export interface ModelCapabilities {
+  model: string
+  vision: boolean
+  tools: boolean
 }

@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server'
+import type { UploadedImage } from '@/types/nanobot'
 
 const API_SERVER_URL = process.env.NANOBOT_API_URL || 'http://localhost:18790'
 
@@ -21,9 +22,10 @@ export async function POST(request: NextRequest) {
       message: string
       sessionKey?: string
       model?: string
+      images?: UploadedImage[]
     }
 
-    const { message, sessionKey, model } = body
+    const { message, sessionKey, model, images } = body
 
     if (!message || message.trim() === '') {
       return new Response(
@@ -35,6 +37,23 @@ export async function POST(request: NextRequest) {
     // 生成会话 key（如果未提供）
     const targetSessionKey = sessionKey || `web:${Date.now()}`
 
+    // 构建请求体，如果有图片则包含图片信息
+    const requestBody: Record<string, unknown> = {
+      message: message,
+      session_key: targetSessionKey,
+      model: model || undefined
+    }
+
+    // 如果有图片，转换格式后发送给后端
+    if (images && images.length > 0) {
+      requestBody.images = images.map(img => ({
+        id: img.id,
+        filename: img.filename,
+        url: img.url,
+        mime_type: img.mime_type
+      }))
+    }
+
     // 调用 Nanobot API 的流式端点
     const apiResponse = await fetch(`${API_SERVER_URL}/api/chat/stream`, {
       method: 'POST',
@@ -42,11 +61,7 @@ export async function POST(request: NextRequest) {
         'Content-Type': 'application/json',
         'Accept': 'text/event-stream',
       },
-      body: JSON.stringify({
-        message: message,
-        session_key: targetSessionKey,
-        model: model || undefined
-      })
+      body: JSON.stringify(requestBody)
     })
 
     if (!apiResponse.ok) {

@@ -1,8 +1,26 @@
 'use client'
 
 import { useEffect, useState, useRef, useCallback } from 'react'
-import { MessageSquare, Send, Trash2, Plus, ArrowLeft, ChevronDown, Wrench, Brain, Loader2, CheckCircle, XCircle, Zap } from 'lucide-react'
+import {
+  MessageSquare,
+  Send,
+  Trash2,
+  Plus,
+  ArrowLeft,
+  ChevronDown,
+  Loader2,
+  CheckCircle,
+  XCircle,
+  PanelRightClose,
+  PanelRightOpen,
+  Menu,
+  X,
+  Eye,
+  Brain
+} from 'lucide-react'
 import Link from 'next/link'
+import RightPanel, { ToolRecord, TodoItem } from '@/components/RightPanel'
+import ImageUploader from '@/components/ImageUploader'
 import type {
   Session,
   ModelInfo,
@@ -15,8 +33,93 @@ import type {
   ToolCallEndEvent,
   IterationStartEvent,
   DoneStreamEvent,
-  ErrorStreamEvent
+  ErrorStreamEvent,
+  UploadedImage
 } from '@/types/nanobot'
+
+// 后端 API 地址
+const BACKEND_URL = process.env.NEXT_PUBLIC_NANOBOT_API_URL || 'http://localhost:18790'
+
+// 获取完整的图片 URL
+function getFullImageUrl(url: string): string {
+  if (!url) return ''
+  if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) {
+    return url
+  }
+  // 相对路径，添加后端地址
+  return `${BACKEND_URL}${url}`
+}
+
+// 从消息内容中提取文本（处理多模态格式）
+function extractTextContent(content: string | any[] | null | undefined): string {
+  if (!content) return ''
+  if (typeof content === 'string') {
+    // 过滤掉图片标记 [图片: xxx.png]
+    return content.replace(/\[图片:[^\]]+\]/g, '').replace(/\[image\]/gi, '').trim()
+  }
+  if (Array.isArray(content)) {
+    return content
+      .filter(block => block.type === 'text')
+      .map(block => block.text.replace(/\[图片:[^\]]+\]/g, '').replace(/\[image\]/gi, '').trim())
+      .join('\n')
+      .trim()
+  }
+  return String(content)
+}
+
+// 从消息内容中提取图片ID（处理 [图片: xxx.png] 格式）
+function extractImageIds(content: string | any[] | null | undefined): string[] {
+  if (!content) return []
+  let text = ''
+  if (typeof content === 'string') {
+    text = content
+  } else if (Array.isArray(content)) {
+    text = content
+      .filter(block => block.type === 'text')
+      .map(block => block.text)
+      .join('\n')
+  } else {
+    return []
+  }
+
+  // 匹配 [图片: temp_xxx.png] 或 [图片: xxx.png] 格式
+  const imageMatches = text.match(/\[图片:\s*([^\]]+)\]/g)
+  if (!imageMatches) return []
+
+  return imageMatches
+    .map(match => {
+      const idMatch = match.match(/\[图片:\s*([^\]]+)\]/)
+      return idMatch ? idMatch[1].trim() : null
+    })
+    .filter((id): id is string => id !== null)
+}
+
+// 从图片文件名中提取实际的图片 ID
+function extractActualImageId(filename: string): string | null {
+  // 文件名格式可能是:
+  // 1. temp_{uuid}.{ext} - 需要提取 uuid 部分
+  // 2. {uuid}.{ext} - 直接使用 uuid 部分
+  // 3. {uuid} - 无扩展名
+
+  // 去除扩展名
+  const nameWithoutExt = filename.replace(/\.[^.]+$/, '')
+
+  // 如果是 temp_ 开头的临时文件，提取 UUID 部分
+  if (nameWithoutExt.startsWith('temp_')) {
+    // temp_{uuid} -> {uuid}
+    return nameWithoutExt.substring(5)
+  }
+
+  // 否则直接使用文件名（假设就是 UUID）
+  // 验证是否是有效的 UUID 格式
+  const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+  if (uuidPattern.test(nameWithoutExt)) {
+    return nameWithoutExt
+  }
+
+  // 如果不是标准 UUID，返回原始文件名让后端尝试匹配
+  return nameWithoutExt
+}
 
 export default function ChatPage() {
   const [sessions, setSessions] = useState<Session[]>([])
@@ -24,7 +127,9 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<StreamingMessage[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
-  const [showSessionList, setShowSessionList] = useState(false)
+
+  // 侧边栏状态
+  const [showLeftPanel, setShowLeftPanel] = useState(true)
 
   // 模型选择相关状态
   const [availableModels, setAvailableModels] = useState<ModelInfo[]>([])
@@ -39,9 +144,30 @@ export default function ChatPage() {
   const [currentIteration, setCurrentIteration] = useState(0)
   const [maxIterations, setMaxIterations] = useState(0)
 
+  // 右侧面板状态
+  const [showRightPanel, setShowRightPanel] = useState(true)
+  const [toolRecords, setToolRecords] = useState<ToolRecord[]>([])
+  const [todos, setTodos] = useState<TodoItem[]>([])
+
+  // 图片上传相关状态
+  const [pendingImages, setPendingImages] = useState<UploadedImage[]>([])
+
   // 消息列表滚动引用
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
+
+  // 判断当前选中的模型是否是 Vision 模型
+  const isVisionModel = useCallback(() => {
+    if (!selectedModel) return false
+    for (const provider of availableModels) {
+      if (provider.vision_models?.includes(selectedModel)) {
+        return true
+      }
+    }
+    // 常见的 Vision 模型关键词
+    const visionKeywords = ['vision', 'gpt-4o', 'gpt-4-turbo', 'claude-3', 'gemini', 'qwen-vl', 'glm-4v']
+    return visionKeywords.some(keyword => selectedModel.toLowerCase().includes(keyword))
+  }, [selectedModel, availableModels])
 
   // 自动滚动到底部
   const scrollToBottom = useCallback(() => {
@@ -70,7 +196,13 @@ export default function ChatPage() {
       if (data.success) {
         setAvailableModels(data.data.models)
         if (data.data.models.length > 0 && data.data.models[0].models.length > 0) {
-          setSelectedModel(data.data.models[0].models[0])
+          // 优先选择 Vision 模型
+          const firstProvider = data.data.models[0]
+          if (firstProvider.vision_models && firstProvider.vision_models.length > 0) {
+            setSelectedModel(firstProvider.vision_models[0])
+          } else {
+            setSelectedModel(firstProvider.models[0])
+          }
         }
       }
     } catch (error) {
@@ -129,15 +261,47 @@ export default function ChatPage() {
         setStreamingReasoning(prev => prev + (event as ReasoningStreamEvent).content)
         break
 
+      case 'heartbeat':
+        // 心跳事件，不需要特殊处理，只是保持连接活跃
+        // 用户会看到"正在思考..."的动画继续播放
+        break
+
       case 'tool_call_start': {
         const toolEvent = event as ToolCallStartEvent
-        setActiveToolCalls(prev => [...prev, {
+        // 处理 arguments 可能是字符串或对象的情况
+        let parsedArgs: Record<string, any>
+        if (typeof toolEvent.arguments === 'string') {
+          try {
+            parsedArgs = JSON.parse(toolEvent.arguments)
+          } catch {
+            // 如果不是 JSON 字符串，包装成对象
+            parsedArgs = { value: toolEvent.arguments }
+          }
+        } else if (toolEvent.arguments && typeof toolEvent.arguments === 'object') {
+          parsedArgs = toolEvent.arguments
+        } else {
+          parsedArgs = {}
+        }
+
+        const newTool: ToolCallState = {
           id: toolEvent.tool_id,
           name: toolEvent.name,
-          arguments: toolEvent.arguments,
+          arguments: parsedArgs,
           status: 'running',
           startTime: Date.now()
-        }])
+        }
+        setActiveToolCalls(prev => [...prev, newTool])
+
+        // 添加到工具记录
+        const toolRecord: ToolRecord = {
+          id: toolEvent.tool_id,
+          name: toolEvent.name,
+          arguments: parsedArgs,
+          status: 'running',
+          startTime: Date.now(),
+          iteration: currentIteration || undefined
+        }
+        setToolRecords(prev => [...prev, toolRecord])
         break
       }
 
@@ -147,6 +311,13 @@ export default function ChatPage() {
           tc.id === toolEvent.tool_id
             ? { ...tc, result: toolEvent.result, status: 'completed', endTime: Date.now() }
             : tc
+        ))
+
+        // 更新工具记录
+        setToolRecords(prev => prev.map(tr =>
+          tr.id === toolEvent.tool_id
+            ? { ...tr, result: toolEvent.result, status: 'completed', endTime: Date.now() }
+            : tr
         ))
         break
       }
@@ -160,18 +331,22 @@ export default function ChatPage() {
 
       case 'done': {
         const doneEvent = event as DoneStreamEvent
+        // 优先使用流式过程中的 reasoning，否则使用 done 事件中的
+        const finalReasoning = streamingReasoning || (doneEvent as any).reasoning_content || undefined
         // 添加最终的助手消息
         const finalMessage: StreamingMessage = {
           role: 'assistant',
           content: doneEvent.content || streamingContent,
           timestamp: new Date().toISOString(),
           isStreaming: false,
-          reasoningContent: streamingReasoning || undefined,
+          reasoningContent: finalReasoning,
           toolCalls: activeToolCalls.length > 0 ? activeToolCalls : undefined,
           tools_used: doneEvent.tools_used
         }
         setMessages(prev => [...prev, finalMessage])
         resetStreamingState()
+        // 刷新会话列表
+        loadSessions()
         break
       }
 
@@ -202,20 +377,39 @@ export default function ChatPage() {
     abortControllerRef.current = null
   }
 
+  // 清除工具历史记录
+  const handleClearToolHistory = () => {
+    setToolRecords([])
+  }
+
+  // 图片上传成功回调
+  const handleImageUploadSuccess = (images: UploadedImage[]) => {
+    setPendingImages(prev => [...prev, ...images])
+  }
+
+  // 移除图片
+  const handleRemoveImage = (imageId: string) => {
+    setPendingImages(prev => prev.filter(img => img.id !== imageId))
+  }
+
   // 发送流式消息
   const handleSendMessage = async () => {
-    if (!input.trim() || loading || isStreaming) return
+    if ((!input.trim() && pendingImages.length === 0) || loading || isStreaming) return
 
     const userMessage: StreamingMessage = {
       role: 'user',
       content: input.trim(),
       timestamp: new Date().toISOString(),
-      isStreaming: false
+      isStreaming: false,
+      images: pendingImages.length > 0 ? pendingImages : undefined
     }
 
     // 添加用户消息
     setMessages(prev => [...prev, userMessage])
+    const messageToSend = input.trim()
+    const imagesToSend = [...pendingImages]
     setInput('')
+    setPendingImages([])
     setLoading(true)
     setIsStreaming(true)
 
@@ -227,9 +421,10 @@ export default function ChatPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          message: input.trim(),
+          message: messageToSend,
           sessionKey: currentSession?.key,
-          model: selectedModel || undefined
+          model: selectedModel || undefined,
+          images: imagesToSend.length > 0 ? imagesToSend : undefined
         }),
         signal: abortControllerRef.current.signal
       })
@@ -308,6 +503,9 @@ export default function ChatPage() {
         if (currentSession?.key === sessionKey) {
           setCurrentSession(null)
           setMessages([])
+          // 清除工具记录和待办
+          setToolRecords([])
+          setTodos([])
         }
         await loadSessions()
       } else {
@@ -335,7 +533,12 @@ export default function ChatPage() {
 
     setCurrentSession(newSession)
     setMessages([])
-    setShowSessionList(false)
+    // 清除工具记录和待办
+    setToolRecords([])
+    setTodos([])
+    setPendingImages([])
+    // 将新会话添加到列表开头
+    setSessions(prev => [newSession, ...prev])
   }
 
   const formatTime = (timestamp: string) => {
@@ -352,370 +555,411 @@ export default function ChatPage() {
     return `${days}天前`
   }
 
-  // 格式化工具参数显示
-  const formatToolArguments = (args: Record<string, any>): string => {
-    try {
-      return JSON.stringify(args, null, 2)
-    } catch {
-      return String(args)
-    }
-  }
-
-  // 截断工具结果显示
-  const truncateResult = (result: string, maxLength: number = 200): string => {
-    if (result.length <= maxLength) return result
-    return result.slice(0, maxLength) + '...'
-  }
-
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-slate-100">
-      <header className="bg-white/80 backdrop-blur-sm border-b border-slate-200 sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-6 py-4">
+    <div className="h-screen flex flex-col bg-gradient-to-br from-slate-50 via-blue-50 to-slate-100">
+      <header className="bg-white/80 backdrop-blur-sm border-b border-slate-200 sticky top-0 z-20 flex-shrink-0">
+        <div className="px-4 py-3">
           <div className="flex items-center justify-between gap-3">
-            <Link href="/" className="flex items-center gap-2 text-slate-600 hover:text-slate-800 transition-colors">
-              <ArrowLeft className="w-5 h-5" />
-              <span className="text-lg font-semibold">首页</span>
-            </Link>
+            <div className="flex items-center gap-2">
+              {/* 左侧面板切换按钮 */}
+              <button
+                onClick={() => setShowLeftPanel(!showLeftPanel)}
+                className="p-2 rounded-lg hover:bg-slate-100 transition-colors"
+                title={showLeftPanel ? '隐藏会话列表' : '显示会话列表'}
+              >
+                <Menu className="w-5 h-5 text-slate-600" />
+              </button>
+              <Link href="/" className="flex items-center gap-2 text-slate-600 hover:text-slate-800 transition-colors">
+                <ArrowLeft className="w-5 h-5" />
+                <span className="hidden sm:inline text-lg font-semibold">首页</span>
+              </Link>
+            </div>
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 bg-gradient-to-br from-blue-600 to-cyan-600 rounded-lg flex items-center justify-center">
                 <MessageSquare className="w-6 h-6 text-white" />
               </div>
               <div>
-                <h1 className="text-2xl font-bold text-slate-800">聊天</h1>
-                <p className="text-sm text-slate-500">与 Nanobot 对话</p>
+                <h1 className="text-xl font-bold text-slate-800">聊天</h1>
+                <p className="text-xs text-slate-500">与 Nanobot 对话</p>
               </div>
             </div>
             <div className="flex items-center gap-2">
+              {/* 右侧面板切换按钮 */}
               <button
-                onClick={() => setShowSessionList(!showSessionList)}
+                onClick={() => setShowRightPanel(!showRightPanel)}
                 className="p-2 rounded-lg hover:bg-slate-100 transition-colors"
-                title="会话列表"
+                title={showRightPanel ? '隐藏执行面板' : '显示执行面板'}
               >
-                <Plus className="w-5 h-5 text-slate-600" />
+                {showRightPanel ? (
+                  <PanelRightClose className="w-5 h-5 text-slate-600" />
+                ) : (
+                  <PanelRightOpen className="w-5 h-5 text-slate-600" />
+                )}
               </button>
-              {currentSession && (
-                <button
-                  onClick={() => handleDeleteSession(currentSession.key)}
-                  className="p-2 rounded-lg hover:bg-red-50 transition-colors"
-                  title="删除会话"
-                >
-                  <Trash2 className="w-5 h-5 text-slate-600 hover:text-red-600" />
-                </button>
-              )}
             </div>
           </div>
         </div>
       </header>
 
-      {/* 会话列表弹窗 */}
-      {showSessionList && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full max-h-[80vh] overflow-auto">
-            <div className="flex items-center justify-between p-4 border-b border-slate-200">
-              <h2 className="text-lg font-semibold">选择会话</h2>
-              <button
-                onClick={() => setShowSessionList(false)}
-                className="text-slate-400 hover:text-slate-600"
-              >
-                ✕
-              </button>
-            </div>
-            <div className="p-4 space-y-2">
+      {/* 主内容区域 - 三栏布局 */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* 左侧会话列表 */}
+        {showLeftPanel && (
+          <div className="w-64 flex-shrink-0 border-r border-slate-200 bg-white flex flex-col">
+            <div className="p-3 border-b border-slate-200">
               <button
                 onClick={handleNewSession}
-                className="w-full text-left px-4 py-3 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
               >
-                <Plus className="w-4 h-4 mr-2 inline" />
-                新建会话
+                <Plus className="w-4 h-4" />
+                <span>新建会话</span>
               </button>
-              {sessions.map(session => (
-                <button
-                  key={session.key}
-                  onClick={() => {
-                    setCurrentSession(session)
-                    setShowSessionList(false)
-                  }}
-                  className={`w-full text-left px-4 py-3 rounded-lg transition-colors ${
-                    currentSession?.key === session.key
-                      ? 'bg-blue-100 text-blue-800'
-                      : 'hover:bg-slate-100 text-slate-700'
-                  }`}
-                >
-                  <div className="font-medium">{session.metadata.title}</div>
-                  <div className="text-xs text-slate-500">{formatTime(session.metadata.updated_at)}</div>
-                </button>
-              ))}
             </div>
-          </div>
-        </div>
-      )}
-
-      <main className="flex-1 flex flex-col">
-        <div className="flex-1 overflow-auto p-4">
-          <div className="max-w-4xl mx-auto">
-            {/* 当前会话信息 */}
-            {currentSession && (
-              <div className="mb-4 px-4 py-2 bg-white/80 backdrop-blur-sm rounded-lg border border-slate-200">
-                <div className="flex items-center justify-between flex-wrap gap-2">
-                  <div className="text-sm text-slate-600">
-                    当前会话: <span className="font-medium text-slate-800">{currentSession.metadata.title}</span>
-                    <span className="mx-2">·</span>
-                    <span className="text-slate-500">{messages.length} 条消息</span>
-                  </div>
-
-                  {/* 模型选择器 */}
-                  {availableModels.length > 0 && (
-                    <div className="relative">
-                      <button
-                        onClick={() => setShowModelSelector(!showModelSelector)}
-                        className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-sm text-slate-700 transition-colors"
-                      >
-                        <span className="font-medium">{selectedModel || '选择模型'}</span>
-                        <ChevronDown className="w-4 h-4" />
-                      </button>
-
-                      {showModelSelector && (
-                        <div className="absolute right-0 mt-1 w-64 bg-white rounded-lg shadow-lg border border-slate-200 z-20 max-h-64 overflow-auto">
-                          {availableModels.map((provider) => (
-                            <div key={provider.provider} className="border-b border-slate-100 last:border-b-0">
-                              <div className="px-3 py-2 text-xs font-semibold text-slate-500 bg-slate-50 uppercase">
-                                {provider.provider}
-                              </div>
-                              {provider.models.map((model) => (
-                                <button
-                                  key={model}
-                                  onClick={() => {
-                                    setSelectedModel(model)
-                                    setShowModelSelector(false)
-                                  }}
-                                  className={`w-full text-left px-3 py-2 text-sm hover:bg-blue-50 transition-colors ${
-                                    selectedModel === model ? 'bg-blue-50 text-blue-700' : 'text-slate-700'
-                                  }`}
-                                >
-                                  {model}
-                                </button>
-                              ))}
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* 消息列表 */}
-            <div className="space-y-4 mb-4">
-              {messages.length === 0 && !isStreaming ? (
-                <div className="text-center py-12 text-slate-500">
-                  <MessageSquare className="w-12 h-12 mx-auto mb-4 text-slate-400" />
-                  <p className="text-lg">开始新对话</p>
-                  <p className="text-sm mt-2">输入消息开始与 Nanobot 聊天</p>
+            <div className="flex-1 overflow-y-auto">
+              {sessions.length === 0 ? (
+                <div className="p-4 text-center text-slate-400 text-sm">
+                  <MessageSquare className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                  <p>暂无会话</p>
                 </div>
               ) : (
-                <>
-                  {messages.map((msg, index) => (
+                <div className="p-2 space-y-1">
+                  {sessions.map(session => (
                     <div
-                      key={`msg-${index}`}
-                      className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                      key={session.key}
+                      className={`group relative rounded-lg transition-colors ${
+                        currentSession?.key === session.key
+                          ? 'bg-blue-50 border border-blue-200'
+                          : 'hover:bg-slate-50 border border-transparent'
+                      }`}
                     >
-                      <div
-                        className={`max-w-[85%] rounded-2xl px-4 py-3 ${
-                          msg.role === 'user'
-                            ? 'bg-blue-600 text-white'
-                            : 'bg-white text-slate-800 border border-slate-200 shadow-sm'
-                        }`}
+                      <button
+                        onClick={() => {
+                          setCurrentSession(session)
+                          setToolRecords([])
+                          setTodos([])
+                        }}
+                        className="w-full text-left px-3 py-2.5"
                       >
-                        {/* 推理过程展示 */}
-                        {msg.role === 'assistant' && msg.reasoningContent && (
-                          <div className="mb-3 p-3 bg-amber-50 rounded-lg border border-amber-200">
-                            <div className="flex items-center gap-2 text-amber-700 text-xs font-medium mb-2">
-                              <Brain className="w-4 h-4" />
-                              推理过程
-                            </div>
-                            <div className="text-sm text-amber-800 whitespace-pre-wrap">
-                              {msg.reasoningContent}
-                            </div>
-                          </div>
-                        )}
-
-                        {/* 工具调用展示 */}
-                        {msg.role === 'assistant' && msg.toolCalls && msg.toolCalls.length > 0 && (
-                          <div className="mb-3 space-y-2">
-                            {msg.toolCalls.map((tool, ti) => (
-                              <div key={`tool-${ti}`} className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-                                <div className="flex items-center gap-2 text-slate-700 text-xs font-medium mb-2">
-                                  <Wrench className="w-4 h-4" />
-                                  <span>{tool.name}</span>
-                                  {tool.status === 'completed' ? (
-                                    <CheckCircle className="w-4 h-4 text-green-500 ml-auto" />
-                                  ) : tool.status === 'error' ? (
-                                    <XCircle className="w-4 h-4 text-red-500 ml-auto" />
-                                  ) : (
-                                    <Loader2 className="w-4 h-4 text-blue-500 ml-auto animate-spin" />
-                                  )}
-                                </div>
-                                <details className="text-xs">
-                                  <summary className="cursor-pointer text-slate-500 hover:text-slate-700">
-                                    查看参数
-                                  </summary>
-                                  <pre className="mt-2 p-2 bg-slate-100 rounded text-slate-600 overflow-auto">
-                                    {formatToolArguments(tool.arguments)}
-                                  </pre>
-                                </details>
-                                {tool.result && (
-                                  <details className="text-xs mt-2">
-                                    <summary className="cursor-pointer text-slate-500 hover:text-slate-700">
-                                      查看结果
-                                    </summary>
-                                    <pre className="mt-2 p-2 bg-slate-100 rounded text-slate-600 overflow-auto max-h-40">
-                                      {tool.result}
-                                    </pre>
-                                  </details>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        )}
-
-                        {/* 消息内容 */}
-                        <div className="text-sm whitespace-pre-wrap break-words">
-                          {msg.content}
+                        <div className="font-medium text-sm text-slate-700 truncate">
+                          {(session as any).title || session.key}
                         </div>
-
-                        <div className="text-xs mt-2 opacity-60">
-                          {formatTime(msg.timestamp || new Date().toISOString())}
+                        <div className="text-xs text-slate-400 mt-0.5">
+                          {formatTime(session.metadata.updated_at)}
+                          <span className="mx-1">·</span>
+                          {session.messageCount} 条消息
                         </div>
-                      </div>
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleDeleteSession(session.key)
+                        }}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded opacity-0 group-hover:opacity-100 hover:bg-red-50 text-slate-400 hover:text-red-500 transition-all"
+                        title="删除会话"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                     </div>
                   ))}
-
-                  {/* 流式消息展示 */}
-                  {isStreaming && (
-                    <div className="flex justify-start">
-                      <div className="max-w-[85%] rounded-2xl px-4 py-3 bg-white text-slate-800 border border-slate-200 shadow-sm">
-                        {/* 迭代指示器 */}
-                        {maxIterations > 0 && (
-                          <div className="flex items-center gap-2 text-xs text-slate-500 mb-2">
-                            <Zap className="w-4 h-4" />
-                            <span>迭代 {currentIteration}/{maxIterations}</span>
-                          </div>
-                        )}
-
-                        {/* 实时推理过程 */}
-                        {streamingReasoning && (
-                          <div className="mb-3 p-3 bg-amber-50 rounded-lg border border-amber-200">
-                            <div className="flex items-center gap-2 text-amber-700 text-xs font-medium mb-2">
-                              <Brain className="w-4 h-4 animate-pulse" />
-                              正在推理...
-                            </div>
-                            <div className="text-sm text-amber-800 whitespace-pre-wrap">
-                              {streamingReasoning}
-                            </div>
-                          </div>
-                        )}
-
-                        {/* 实时工具调用 */}
-                        {activeToolCalls.length > 0 && (
-                          <div className="mb-3 space-y-2">
-                            {activeToolCalls.map((tool) => (
-                              <div key={tool.id} className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-                                <div className="flex items-center gap-2 text-slate-700 text-xs font-medium mb-2">
-                                  <Wrench className="w-4 h-4" />
-                                  <span>{tool.name}</span>
-                                  {tool.status === 'running' ? (
-                                    <Loader2 className="w-4 h-4 text-blue-500 ml-auto animate-spin" />
-                                  ) : (
-                                    <CheckCircle className="w-4 h-4 text-green-500 ml-auto" />
-                                  )}
-                                </div>
-                                <details className="text-xs" open={tool.status === 'running'}>
-                                  <summary className="cursor-pointer text-slate-500 hover:text-slate-700">
-                                    查看参数
-                                  </summary>
-                                  <pre className="mt-2 p-2 bg-slate-100 rounded text-slate-600 overflow-auto">
-                                    {formatToolArguments(tool.arguments)}
-                                  </pre>
-                                </details>
-                                {tool.result && (
-                                  <div className="mt-2 text-xs">
-                                    <div className="text-slate-500 mb-1">执行结果:</div>
-                                    <pre className="p-2 bg-green-50 rounded text-green-700 overflow-auto max-h-32">
-                                      {truncateResult(tool.result)}
-                                    </pre>
-                                  </div>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        )}
-
-                        {/* 流式内容 */}
-                        {streamingContent && (
-                          <div className="text-sm whitespace-pre-wrap break-words">
-                            {streamingContent}
-                            <span className="inline-block w-2 h-4 bg-blue-500 ml-1 animate-pulse" />
-                          </div>
-                        )}
-
-                        {/* 加载指示器 */}
-                        {!streamingContent && !streamingReasoning && activeToolCalls.length === 0 && (
-                          <div className="flex items-center gap-2 text-slate-500">
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                            <span className="text-sm">正在思考...</span>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </>
+                </div>
               )}
-              <div ref={messagesEndRef} />
             </div>
           </div>
-        </div>
+        )}
 
-        {/* 输入区域 */}
-        <div className="border-t border-slate-200 bg-white">
-          <div className="max-w-4xl mx-auto p-4">
-            <form onSubmit={(e) => { e.preventDefault(); handleSendMessage(); }} className="flex gap-3">
-              <input
-                type="text"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder="输入消息... (按 Enter 发送)"
-                disabled={loading && !isStreaming}
-                className="flex-1 px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-slate-100 disabled:opacity-50"
-              />
-              {isStreaming ? (
-                <button
-                  type="button"
-                  onClick={handleCancelStream}
-                  className="px-6 py-3 bg-red-500 text-white rounded-xl hover:bg-red-600 transition-all flex items-center gap-2"
-                >
-                  停止
-                </button>
-              ) : (
-                <button
-                  type="submit"
-                  disabled={loading || !input.trim()}
-                  className="px-6 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:bg-blue-400 disabled:opacity-50 transition-all flex items-center gap-2"
-                >
-                  {loading ? (
-                    <div className="w-5 h-5 border-2 border-white/30 border-t-transparent rounded-full animate-spin" />
-                  ) : (
-                    <>
-                      <Send className="w-5 h-5" />
-                      <span className="hidden sm:inline">发送</span>
-                    </>
-                  )}
-                </button>
+        {/* 中间聊天区域 */}
+        <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
+          <div className="flex-1 overflow-auto p-4">
+            <div className="max-w-3xl mx-auto">
+              {/* 当前会话信息 */}
+              {currentSession && (
+                <div className="mb-4 px-4 py-2 bg-white/80 backdrop-blur-sm rounded-lg border border-slate-200">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <div className="text-sm text-slate-600">
+                      当前会话: <span className="font-medium text-slate-800">{currentSession.metadata.title}</span>
+                      <span className="mx-2">·</span>
+                      <span className="text-slate-500">{messages.length} 条消息</span>
+                      {toolRecords.length > 0 && (
+                        <>
+                          <span className="mx-2">·</span>
+                          <span className="text-blue-500">{toolRecords.length} 次工具调用</span>
+                        </>
+                      )}
+                    </div>
+
+                    {/* 模型选择器 */}
+                    {availableModels.length > 0 && (
+                      <div className="relative">
+                        <button
+                          onClick={() => setShowModelSelector(!showModelSelector)}
+                          className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-sm text-slate-700 transition-colors"
+                        >
+                          {isVisionModel() && (
+                            <Eye className="w-3.5 h-3.5 text-purple-500" title="支持图片" />
+                          )}
+                          <span className="font-medium">{selectedModel || '选择模型'}</span>
+                          <ChevronDown className="w-4 h-4" />
+                        </button>
+
+                        {showModelSelector && (
+                          <>
+                            <div
+                              className="fixed inset-0 z-10"
+                              onClick={() => setShowModelSelector(false)}
+                            />
+                            <div className="absolute right-0 mt-1 w-72 bg-white rounded-lg shadow-lg border border-slate-200 z-20 max-h-80 overflow-auto">
+                              {availableModels.map((provider) => (
+                                <div key={provider.provider} className="border-b border-slate-100 last:border-b-0">
+                                  <div className="px-3 py-2 text-xs font-semibold text-slate-500 bg-slate-50 uppercase sticky top-0">
+                                    {provider.provider}
+                                  </div>
+                                  {provider.models.map((model) => {
+                                    const isVision = provider.vision_models?.includes(model)
+                                    return (
+                                      <button
+                                        key={model}
+                                        onClick={() => {
+                                          setSelectedModel(model)
+                                          setShowModelSelector(false)
+                                        }}
+                                        className={`w-full text-left px-3 py-2 text-sm hover:bg-blue-50 transition-colors flex items-center gap-2 ${
+                                          selectedModel === model ? 'bg-blue-50 text-blue-700' : 'text-slate-700'
+                                        }`}
+                                      >
+                                        {isVision && (
+                                          <Eye className="w-3.5 h-3.5 text-purple-500 flex-shrink-0" />
+                                        )}
+                                        <span className="truncate">{model}</span>
+                                      </button>
+                                    )
+                                  })}
+                                </div>
+                              ))}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
               )}
-            </form>
+
+              {/* 消息列表 */}
+              <div className="space-y-4 mb-4">
+                {messages.length === 0 && !isStreaming ? (
+                  <div className="text-center py-12 text-slate-500">
+                    <MessageSquare className="w-12 h-12 mx-auto mb-4 text-slate-400" />
+                    <p className="text-lg">开始新对话</p>
+                    <p className="text-sm mt-2">输入消息开始与 Nanobot 聊天</p>
+                    {isVisionModel() && (
+                      <p className="text-xs mt-2 text-purple-500">
+                        <Eye className="w-3 h-3 inline mr-1" />
+                        当前模型支持图片理解
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <>
+                    {messages.map((msg, index) => (
+                      <div
+                        key={`msg-${index}`}
+                        className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                      >
+                        <div
+                          className={`max-w-[85%] rounded-2xl px-4 py-3 ${
+                            msg.role === 'user'
+                              ? 'bg-blue-600 text-white'
+                              : 'bg-white text-slate-800 border border-slate-200 shadow-sm'
+                          }`}
+                        >
+                          {/* 用户图片展示 */}
+                          {msg.role === 'user' && msg.images && msg.images.length > 0 && (
+                            <div className="flex flex-wrap gap-2 mb-2">
+                              {msg.images.map((img) => (
+                                <img
+                                  key={img.id}
+                                  src={getFullImageUrl(img.thumbnail_url || img.url)}
+                                  alt={img.filename}
+                                  className="w-20 h-20 object-cover rounded-lg border border-white/20"
+                                />
+                              ))}
+                            </div>
+                          )}
+                          {/* 历史消息中的图片展示（从 [图片: xxx.png] 格式解析） */}
+                          {msg.role === 'user' && extractImageIds(msg.content).length > 0 && !msg.images && (
+                            <div className="flex flex-wrap gap-2 mb-2">
+                              {extractImageIds(msg.content).map((imageFilename) => {
+                                const actualId = extractActualImageId(imageFilename)
+                                return actualId ? (
+                                  <img
+                                    key={imageFilename}
+                                    src={`/api/upload/image/${actualId}?thumbnail`}
+                                    alt={imageFilename}
+                                    className="w-20 h-20 object-cover rounded-lg border border-white/20 cursor-pointer hover:opacity-80 transition-opacity"
+                                    onError={(e) => {
+                                      // 缩略图加载失败时尝试加载原图
+                                      const target = e.target as HTMLImageElement
+                                      if (target.src.includes('thumbnail')) {
+                                        target.src = `/api/upload/image/${actualId}`
+                                      } else {
+                                        target.style.display = 'none'
+                                      }
+                                    }}
+                                    onClick={() => {
+                                      // 点击查看大图
+                                      window.open(`/api/upload/image/${actualId}`, '_blank')
+                                    }}
+                                  />
+                                ) : null
+                              }).filter(Boolean)}
+                            </div>
+                          )}
+                          {/* 历史消息中的推理过程展示 */}
+                          {msg.role === 'assistant' && msg.reasoningContent && (
+                            <div className="mb-3 p-3 bg-amber-50 rounded-lg border border-amber-200">
+                              <div className="flex items-center gap-2 text-amber-700 text-xs font-medium mb-2">
+                                <Brain className="w-4 h-4" />
+                                <span>思考过程</span>
+                              </div>
+                              <div className="text-xs text-amber-800 whitespace-pre-wrap break-words max-h-40 overflow-y-auto">
+                                {msg.reasoningContent}
+                              </div>
+                            </div>
+                          )}
+                          {/* 消息内容 */}
+                          <div className="text-sm whitespace-pre-wrap break-words">
+                            {extractTextContent(msg.content)}
+                          </div>
+
+                          <div className="text-xs mt-2 opacity-60">
+                            {formatTime(msg.timestamp || new Date().toISOString())}
+                            {msg.tools_used && msg.tools_used.length > 0 && (
+                              <span className="ml-2">
+                                · 使用了 {msg.tools_used.join(', ')}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+
+                    {/* 流式消息展示 */}
+                    {isStreaming && (
+                      <div className="flex justify-start">
+                        <div className="max-w-[85%] rounded-2xl px-4 py-3 bg-white text-slate-800 border border-slate-200 shadow-sm">
+                          {/* 推理过程 - 折叠展示 */}
+                          {streamingReasoning && (
+                            <div className="mb-3 p-3 bg-amber-50 rounded-lg border border-amber-200">
+                              <div className="flex items-center gap-2 text-amber-700 text-xs font-medium mb-2">
+                                <Brain className="w-4 h-4" />
+                                <span>思考过程</span>
+                                <Loader2 className="w-3 h-3 animate-spin ml-auto" />
+                              </div>
+                              <div className="text-xs text-amber-800 whitespace-pre-wrap break-words max-h-40 overflow-y-auto">
+                                {streamingReasoning}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* 流式内容 */}
+                          {streamingContent && (
+                            <div className="text-sm whitespace-pre-wrap break-words">
+                              {streamingContent}
+                              <span className="inline-block w-2 h-4 bg-blue-500 ml-1 animate-pulse" />
+                            </div>
+                          )}
+
+                          {/* 加载指示器 */}
+                          {!streamingContent && !streamingReasoning && activeToolCalls.length === 0 && (
+                            <div className="flex items-center gap-2 text-slate-500">
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                              <span className="text-sm">正在思考...</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+                <div ref={messagesEndRef} />
+              </div>
+            </div>
           </div>
-        </div>
-      </main>
+
+          {/* 输入区域 */}
+          <div className="border-t border-slate-200 bg-white flex-shrink-0">
+            <div className="max-w-3xl mx-auto p-4">
+              {/* 图片上传区域 - 仅 Vision 模型显示 */}
+              {isVisionModel() && (
+                <div className="mb-3">
+                  <ImageUploader
+                    onUploadSuccess={handleImageUploadSuccess}
+                    onUploadError={(error) => console.error('Upload error:', error)}
+                    maxFiles={5}
+                    maxSize={10}
+                    disabled={isStreaming}
+                    pendingImages={pendingImages}
+                    onRemoveImage={handleRemoveImage}
+                  />
+                </div>
+              )}
+
+              <form onSubmit={(e) => { e.preventDefault(); handleSendMessage(); }} className="flex gap-3">
+                <input
+                  type="text"
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  placeholder={isVisionModel() ? "输入消息... (可上传图片)" : "输入消息... (按 Enter 发送)"}
+                  disabled={loading && !isStreaming}
+                  className="flex-1 px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-slate-100 disabled:opacity-50"
+                />
+                {isStreaming ? (
+                  <button
+                    type="button"
+                    onClick={handleCancelStream}
+                    className="px-6 py-3 bg-red-500 text-white rounded-xl hover:bg-red-600 transition-all flex items-center gap-2"
+                  >
+                    停止
+                  </button>
+                ) : (
+                  <button
+                    type="submit"
+                    disabled={loading || (!input.trim() && pendingImages.length === 0)}
+                    className="px-6 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:bg-blue-400 disabled:opacity-50 transition-all flex items-center gap-2"
+                  >
+                    {loading ? (
+                      <div className="w-5 h-5 border-2 border-white/30 border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <>
+                        <Send className="w-5 h-5" />
+                        <span className="hidden sm:inline">发送</span>
+                      </>
+                    )}
+                  </button>
+                )}
+              </form>
+            </div>
+          </div>
+        </main>
+
+        {/* 右侧面板 */}
+        {showRightPanel && (
+          <div className="w-80 flex-shrink-0 border-l border-slate-200">
+            <RightPanel
+              toolRecords={toolRecords}
+              activeToolCalls={activeToolCalls.map(tc => ({
+                ...tc,
+                iteration: currentIteration || undefined
+              }))}
+              todos={todos}
+              currentIteration={currentIteration}
+              maxIterations={maxIterations}
+              isStreaming={isStreaming}
+              onClearHistory={handleClearToolHistory}
+            />
+          </div>
+        )}
+      </div>
     </div>
   )
 }

@@ -2,6 +2,20 @@ import { NextResponse } from 'next/server'
 import { readConfig } from '@/lib/nanobot/config'
 import type { ProviderName, ProviderMeta } from '@/types/nanobot'
 
+// Vision 模型检测模式（与 utils/model.ts 保持同步）
+const VISION_MODEL_PATTERNS = [
+  'gpt-4-vision', 'gpt-4-turbo', 'gpt-4o', 'gpt-4o-mini',
+  'claude-3', 'claude-3.5',
+  'gemini-1.5', 'gemini-2',
+  'openrouter/', 'vision', 'llava',
+  'glm-4v', 'qwen-vl', 'deepseek-vl'
+]
+
+function isVisionModel(model: string): boolean {
+  const modelLower = model.toLowerCase()
+  return VISION_MODEL_PATTERNS.some(pattern => modelLower.includes(pattern))
+}
+
 /**
  * 提供商元数据
  */
@@ -114,10 +128,16 @@ export async function GET() {
     // 构建提供商列表
     const providers: ProviderMeta[] = Object.entries(PROVIDER_METADATA).map(([name, meta]) => {
       const isConfigured = name in configuredProviders
+      const providerConfig = configuredProviders[name]
+      const configuredModels = providerConfig?.models || []
+      const visionModelsCount = configuredModels.filter(isVisionModel).length
+
       return {
         name: name as ProviderName,
         ...meta,
-        status: isConfigured ? 'active' : 'inactive'
+        status: isConfigured ? 'active' : 'inactive',
+        configured_models: configuredModels,
+        vision_models_count: visionModelsCount
       }
     })
 

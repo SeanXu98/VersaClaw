@@ -1,1 +1,12 @@
-﻿const nextConfig = { devServer: { port: 5000 }, output: "standalone", experimental: { turbo: undefined }, eslint: { ignoreDuringBuilds: true }, typescript: { ignoreBuildErrors: true } }; module.exports = nextConfig
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  output: "standalone",
+  eslint: {
+    ignoreDuringBuilds: true
+  },
+  typescript: {
+    ignoreBuildErrors: true
+  }
+}
+
+module.exports = nextConfig

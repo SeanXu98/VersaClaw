@@ -3,7 +3,7 @@ import "./globals.css"
 
 export const metadata: Metadata = {
   title: "VersaClaw",
-  description: "多模态 AI Agent 可视化管理平台",
+  description: "基于Nanobot扩展的AI Agent",
 }
 
 export default function RootLayout({

@@ -9,14 +9,17 @@ import json
 import os
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
 import uvicorn
 
 try:
-    from fastapi import FastAPI, HTTPException
+    from fastapi import FastAPI, HTTPException, UploadFile, File
     from fastapi.middleware.cors import CORSMiddleware
-    from fastapi.responses import StreamingResponse
+    from fastapi.responses import StreamingResponse, FileResponse
     from pydantic import BaseModel
+    from typing import List
+    import uuid
+    import base64
 except ImportError:
     print("FastAPI not installed. Installing...")
     import subprocess
@@ -35,6 +38,9 @@ except ImportError:
     print("Nanobot modules not found. Please install: pip install nanobot-ai")
     sys.exit(1)
 
+# 导入流式处理模块
+from stream_processor import StreamProcessor, ImageData as StreamImageData
+
 app = FastAPI(title="Nanobot API Server", version="0.1.0")
 
 # CORS 中间件
@@ -46,16 +52,74 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 数据模型
+# ==================== 图片上传相关配置和数据模型 ====================
+
+class ImageData(BaseModel):
+    """图片数据模型"""
+    id: str
+    url: str
+    thumbnail_url: Optional[str] = None
+    mime_type: str
+    size: Optional[int] = None
+    filename: Optional[str] = None
+    width: Optional[int] = None
+    height: Optional[int] = None
+
+
+class UploadConfig:
+    """图片上传配置"""
+    UPLOAD_DIR: str = os.path.expanduser("~/.nanobot/uploads/images")
+    THUMBNAIL_DIR: str = os.path.expanduser("~/.nanobot/uploads/images/thumbnails")
+    MAX_FILE_SIZE: int = 10 * 1024 * 1024  # 10MB
+    ALLOWED_TYPES: list = ["image/png", "image/jpeg", "image/gif", "image/webp"]
+
+
 class ChatRequest(BaseModel):
+    """聊天请求模型（支持多模态）"""
     message: str
     session_key: Optional[str] = "web:direct"
     model: Optional[str] = None
+    images: Optional[List[ImageData]] = None  # 支持多模态图片
+
+
+class UploadResponse(BaseModel):
+    """上传响应模型"""
+    success: bool
+    data: Optional[dict] = None
+    error: Optional[str] = None
+
 
 class ChatResponse(BaseModel):
+    """聊天响应模型"""
     success: bool
-    data: dict
+    data: Optional[dict] = None
     error: Optional[str] = None
+
+
+# Vision 模型检测模式
+VISION_MODEL_PATTERNS = [
+    # OpenAI
+    "gpt-4-vision", "gpt-4-turbo", "gpt-4o", "gpt-4o-mini",
+    # Anthropic
+    "claude-3", "claude-3.5",
+    # Google
+    "gemini-1.5", "gemini-2",
+    # OpenRouter
+    "openrouter/",
+    # 智谱 GLM Vision 系列
+    "glm-4v", "glm-4.6v", "glm-4.1v",
+    # 其他可能的 Vision 模型
+    "vision", "llava",
+]
+
+
+def is_vision_model(model: str) -> bool:
+    """检测模型是否支持 Vision 能力"""
+    if not model:
+        return False
+    model_lower = model.lower()
+    return any(pattern in model_lower for pattern in VISION_MODEL_PATTERNS)
+
 
 # 全局变量
 config = None
@@ -127,19 +191,9 @@ async def reload_nanobot():
         # 重新加载配置
         config = load_config()
 
-        # 调试：显示 zhipu provider 的 API key 状态
+        # 获取 provider 配置
         p = config.get_provider()
         model = config.agents.defaults.model
-        print(f"Debug: Model = {model}")
-        print(f"Debug: Matched provider name = {config.get_provider_name()}")
-
-        if p:
-            print(f"Debug: Provider has api_key = {bool(p.api_key)}")
-            if p.api_key:
-                key_preview = p.api_key[:8] + "..." if len(p.api_key) > 8 else p.api_key
-                print(f"Debug: API key (first 8 chars) = {key_preview}")
-        else:
-            print("Debug: No provider matched")
 
         # 重新创建 provider
         from nanobot.providers.litellm_provider import LiteLLMProvider
@@ -268,8 +322,13 @@ async def chat_stream(request: ChatRequest):
     - tool_call_start: 工具调用开始
     - tool_call_end: 工具调用结束
     - iteration_start: Agent迭代开始
+    - image_processing: 图片处理状态
     - done: 处理完成
     - error: 错误
+
+    注意：此端点使用 StreamProcessor 封装类处理流式响应。
+    这是临时方案，等待 nanobot 官方支持 process_stream 方法。
+    详见 stream_processor.py 文件。
     """
     global agent_loop, config
 
@@ -286,6 +345,10 @@ async def chat_stream(request: ChatRequest):
             # 生成 session key
             session_key = request.session_key or f"web:{asyncio.get_event_loop().time()}"
 
+            # 获取请求中的图片（如果有）
+            images = request.images
+            model = request.model or (agent_loop.model if agent_loop else None)
+
             # 如果指定了模型，临时更新 agent_loop 的模型
             original_model = None
             if request.model and agent_loop:
@@ -294,16 +357,48 @@ async def chat_stream(request: ChatRequest):
                 print(f"Stream using model: {request.model}")
 
             try:
-                # 调用流式处理方法
-                async for event in agent_loop.process_stream(
-                    content=request.message,
+                # 构建消息内容（支持多模态）
+                if images:
+                    content = build_multimodal_content(request.message, images)
+                    print(f"Multimodal content: {len(content)} blocks (1 text + {len(images)} images)")
+                else:
+                    content = request.message
+
+                # 创建流式处理器
+                processor = StreamProcessor(
+                    agent_loop=agent_loop,
+                    upload_dir=UploadConfig.UPLOAD_DIR,
+                    vision_check_fn=is_vision_model
+                )
+
+                # 转换图片数据格式
+                stream_images = None
+                if images:
+                    stream_images = [
+                        StreamImageData(
+                            id=img.id,
+                            url=img.url,
+                            thumbnail_url=img.thumbnail_url,
+                            mime_type=img.mime_type,
+                            size=img.size,
+                            filename=img.filename,
+                            width=img.width,
+                            height=img.height
+                        )
+                        for img in images
+                    ]
+
+                # 使用 StreamProcessor 生成流式事件
+                async for event in processor.process_stream(
+                    content=content,
                     session_key=session_key,
+                    images=stream_images,
+                    model=model,
                     channel="web",
-                    chat_id=session_key.split(":")[-1] if ":" in session_key else "stream"
+                    timeout=120.0
                 ):
-                    # 格式化为SSE事件
-                    event_data = json.dumps(event, ensure_ascii=False)
-                    yield f"data: {event_data}\n\n"
+                    yield event
+
             finally:
                 # 恢复原始模型
                 if original_model:
@@ -311,6 +406,8 @@ async def chat_stream(request: ChatRequest):
 
         except Exception as e:
             print(f"Error in stream: {e}")
+            import traceback
+            traceback.print_exc()
             error_event = json.dumps({"type": "error", "error": str(e)}, ensure_ascii=False)
             yield f"data: {error_event}\n\n"
 
@@ -324,15 +421,15 @@ async def chat_stream(request: ChatRequest):
         }
     )
 
+
 @app.get("/api/sessions")
 async def list_sessions():
     """列出所有会话"""
     try:
-        from nanobot.session.manager import SessionManager
         from pathlib import Path
 
-        session_manager = SessionManager(config.workspace_path)
-        sessions_dir = Path(config.workspace_path) / ".." / "sessions"
+        # 会话目录在 workspace 目录下的 sessions 子目录
+        sessions_dir = Path(config.workspace_path) / "sessions"
 
         if not sessions_dir.exists():
             return {"success": True, "data": {"sessions": []}}
@@ -346,11 +443,43 @@ async def list_sessions():
                         metadata = json.loads(lines[0])
                         messages_count = len(lines) - 1
                         session_key = file.stem.replace('_', ':')
+
+                        # 提取第一条用户消息作为标题
+                        title = "新会话"
+                        for line in lines[1:]:  # 跳过 metadata 行
+                            try:
+                                msg = json.loads(line)
+                                if msg.get("role") == "user":
+                                    content = msg.get("content", "")
+                                    # 处理多模态内容格式
+                                    if isinstance(content, list):
+                                        # 提取文本内容
+                                        text_parts = []
+                                        for block in content:
+                                            if isinstance(block, dict) and block.get("type") == "text":
+                                                text = block.get("text", "")
+                                                # 过滤掉图片标记
+                                                text = text.replace("[image]", "").replace("[图片:", "").strip()
+                                                if text and not text.startswith("temp_"):
+                                                    text_parts.append(text)
+                                        title = " ".join(text_parts).strip()[:50]  # 限制50字符
+                                    elif isinstance(content, str):
+                                        # 过滤掉图片标记
+                                        title = content.replace("[image]", "").replace("[图片:", "").strip()[:50]
+                                    if title:
+                                        break
+                            except:
+                                continue
+
+                        if not title:
+                            title = "新会话"
+
                         sessions.append({
                             "key": session_key,
                             "filename": file.name,
                             "metadata": metadata,
-                            "messageCount": messages_count
+                            "messageCount": messages_count,
+                            "title": title
                         })
             except Exception as e:
                 print(f"Error reading session {file}: {e}")
@@ -373,7 +502,8 @@ async def get_session(session_key: str):
     try:
         from pathlib import Path
 
-        sessions_dir = Path(config.workspace_path) / ".." / "sessions"
+        # 会话目录在 workspace 目录下的 sessions 子目录
+        sessions_dir = Path(config.workspace_path) / "sessions"
         session_file = sessions_dir / f"{session_key.replace(':', '_')}.jsonl"
 
         if not session_file.exists():
@@ -406,7 +536,8 @@ async def delete_session(session_key: str):
     try:
         from pathlib import Path
 
-        sessions_dir = Path(config.workspace_path) / ".." / "sessions"
+        # 会话目录在 workspace 目录下的 sessions 子目录
+        sessions_dir = Path(config.workspace_path) / "sessions"
         session_file = sessions_dir / f"{session_key.replace(':', '_')}.jsonl"
 
         if session_file.exists():
@@ -417,6 +548,291 @@ async def delete_session(session_key: str):
     except Exception as e:
         print(f"Error deleting session: {e}")
         return {"success": False, "error": str(e)}
+
+
+# ==================== 图片上传 API ====================
+
+def get_upload_dir() -> Path:
+    """获取上传目录路径"""
+    upload_dir = Path.home() / ".nanobot" / "uploads" / "images"
+    upload_dir.mkdir(parents=True, exist_ok=True)
+
+    # 创建缩略图目录
+    thumbnails_dir = upload_dir / "thumbnails"
+    thumbnails_dir.mkdir(parents=True, exist_ok=True)
+
+    return upload_dir
+
+
+@app.post("/api/upload/image")
+async def upload_image(file: UploadFile = File(...)):
+    """上传单张图片"""
+
+    # 验证文件类型
+    if file.content_type not in UploadConfig.ALLOWED_TYPES:
+        return UploadResponse(
+            success=False,
+            error=f"不支持的文件类型: {file.content_type}。支持的类型: {', '.join(UploadConfig.ALLOWED_TYPES)}"
+        )
+
+    # 读取文件内容
+    content = await file.read()
+
+    # 验证文件大小
+    if len(content) > UploadConfig.MAX_FILE_SIZE:
+        return UploadResponse(
+            success=False,
+            error=f"文件太大，最大允许 {UploadConfig.MAX_FILE_SIZE / 1024 / 1024}MB"
+        )
+
+    try:
+        # 生成唯一文件 ID
+        image_id = str(uuid.uuid4())
+
+        # 确定文件扩展名
+        ext = Path(file.filename).suffix.lower() or ".png"
+
+        # 保存文件
+        upload_dir = get_upload_dir()
+        file_path = upload_dir / f"{image_id}{ext}"
+
+        with open(file_path, "wb") as f:
+            f.write(content)
+
+        # 获取图片尺寸（可选）
+        width, height = None, None
+        try:
+            # 尝试使用 Pillow 获取尺寸
+            try:
+                from PIL import Image
+                img = Image.open(file_path)
+                width, height = img.size
+                img.close()
+            except ImportError:
+                pass  # Pillow 未安装，跳过尺寸获取
+        except Exception:
+            pass  # 图片读取失败，跳过尺寸获取
+
+        # 返回上传结果
+        return UploadResponse(
+            success=True,
+            data={
+                "id": image_id,
+                "filename": file.filename,
+                "url": f"/api/upload/image/{image_id}",
+                "thumbnail_url": f"/api/upload/image/{image_id}/thumbnail",
+                "size": len(content),
+                "mime_type": file.content_type,
+                "width": width,
+                "height": height
+            }
+        )
+
+    except Exception as e:
+        print(f"Error uploading image: {e}")
+        return UploadResponse(
+            success=False,
+            error=f"上传失败: {str(e)}"
+        )
+
+
+@app.get("/api/upload/image/{image_id}")
+async def get_image(image_id: str):
+    """获取上传的图片"""
+
+    upload_dir = get_upload_dir()
+
+    # 尝试不同的扩展名
+    for ext in [".png", ".jpg", ".jpeg", ".gif", ".webp", ""]:
+        file_path = upload_dir / f"{image_id}{ext}"
+        if file_path.exists():
+            return FileResponse(
+                path=file_path,
+                media_type="image/" + ext.lstrip("."),
+                filename=f"{image_id}{ext}"
+            )
+
+    raise HTTPException(status_code=404, detail="Image not found")
+
+
+@app.get("/api/upload/image/{image_id}/thumbnail")
+async def get_image_thumbnail(image_id: str):
+    """获取图片缩略图"""
+
+    upload_dir = get_upload_dir()
+    thumbnails_dir = upload_dir / "thumbnails"
+
+    # 尝试查找已存在的缩略图
+    for ext in [".jpg", ".png", ""]:
+        thumb_path = thumbnails_dir / f"{image_id}_thumb{ext}"
+        if thumb_path.exists():
+            return FileResponse(
+                path=thumb_path,
+                media_type="image/jpeg",
+                filename=f"{image_id}_thumb.jpg"
+            )
+
+    # 如果缩略图不存在，尝试生成
+    original_path = None
+    original_ext = None
+
+    for ext in [".png", ".jpg", ".jpeg", ".gif", ".webp", ""]:
+        test_path = upload_dir / f"{image_id}{ext}"
+        if test_path.exists():
+            original_path = test_path
+            original_ext = ext
+            break
+
+    if not original_path:
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    try:
+        # 尝试使用 Pillow 生成缩略图
+        try:
+            from PIL import Image
+
+            img = Image.open(original_path)
+
+            # 生成缩略图 (最大 200x200)
+            img.thumbnail((200, 200))
+
+            # 保存缩略图
+            thumb_path = thumbnails_dir / f"{image_id}_thumb.jpg"
+            img.convert("RGB").save(thumb_path, "JPEG", quality=85)
+            img.close()
+
+            return FileResponse(
+                path=thumb_path,
+                media_type="image/jpeg",
+                filename=f"{image_id}_thumb.jpg"
+            )
+
+        except ImportError:
+            # Pillow 未安装，返回原图
+            return FileResponse(
+                path=original_path,
+                media_type=f"image/{original_ext.lstrip('.')}",
+                filename=f"{image_id}{original_ext}"
+            )
+
+    except Exception as e:
+        print(f"Error generating thumbnail: {e}")
+        # 生成失败，返回原图
+        return FileResponse(
+            path=original_path,
+            media_type=f"image/{original_ext.lstrip('.')}",
+            filename=f"{image_id}{original_ext}"
+        )
+
+
+@app.delete("/api/upload/image/{image_id}")
+async def delete_image(image_id: str):
+    """删除上传的图片"""
+
+    upload_dir = get_upload_dir()
+    deleted = False
+
+    try:
+        # 删除原图
+        for ext in [".png", ".jpg", ".jpeg", ".gif", ".webp", ""]:
+            file_path = upload_dir / f"{image_id}{ext}"
+            if file_path.exists():
+                file_path.unlink()
+                deleted = True
+                break
+
+        # 删除缩略图
+        thumbnails_dir = upload_dir / "thumbnails"
+        for ext in [".jpg", ".png", ""]:
+            thumb_path = thumbnails_dir / f"{image_id}_thumb{ext}"
+            if thumb_path.exists():
+                thumb_path.unlink()
+
+        if deleted:
+            return {"success": True, "data": {"message": "Image deleted"}}
+        else:
+            raise HTTPException(status_code=404, detail="Image not found")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error deleting image: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@app.get("/api/models/{model}/capabilities")
+async def get_model_capabilities(model: str):
+    """获取模型能力信息"""
+    return {
+        "success": True,
+        "data": {
+            "model": model,
+            "vision": is_vision_model(model),
+            "tools": True  # 大多数现代模型都支持工具调用
+        }
+    }
+
+
+# ==================== 多模态聊天支持 ====================
+
+def load_image_as_base64(image_id: str) -> tuple[str, str]:
+    """
+    加载图片并转换为 base64
+    返回: (base64_string, mime_type)
+    """
+    upload_dir = get_upload_dir()
+
+    for ext in [".png", ".jpg", ".jpeg", ".gif", ".webp", ""]:
+        file_path = upload_dir / f"{image_id}{ext}"
+        if file_path.exists():
+            with open(file_path, "rb") as f:
+                image_data = f.read()
+
+            # 确定 MIME 类型
+            mime_type_map = {
+                ".png": "image/png",
+                ".jpg": "image/jpeg",
+                ".jpeg": "image/jpeg",
+                ".gif": "image/gif",
+                ".webp": "image/webp"
+            }
+            mime_type = mime_type_map.get(ext, "image/png")
+
+            base64_string = base64.b64encode(image_data).decode("utf-8")
+            return base64_string, mime_type
+
+    raise FileNotFoundError(f"Image not found: {image_id}")
+
+
+def build_multimodal_content(message: str, images: List[ImageData] = None) -> list:
+    """
+    构建多模态消息内容
+    返回 OpenAI 格式的内容列表
+    """
+    content = [{"type": "text", "text": message}]
+
+    if images:
+        for img in images:
+            try:
+                # 如果 URL 是 base64 data URL，直接使用
+                if img.url and img.url.startswith("data:"):
+                    content.append({
+                        "type": "image_url",
+                        "image_url": {"url": img.url}
+                    })
+                else:
+                    # 从服务器加载图片并转为 base64
+                    base64_data, mime_type = load_image_as_base64(img.id)
+                    content.append({
+                        "type": "image_url",
+                        "image_url": {"url": f"data:{mime_type};base64,{base64_data}"}
+                    })
+            except Exception as e:
+                print(f"Error loading image {img.id}: {e}")
+                # 跳过加载失败的图片
+
+    return content
+
 
 @app.post("/api/config/reload")
 async def reload_config():
