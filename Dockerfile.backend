@@ -1,10 +1,10 @@
-# VersaClaw Backend Dockerfile
+# NanoClaw Backend Dockerfile
 # Python FastAPI server for Nanobot AI Agent
 
 FROM python:3.11-slim
 
-LABEL maintainer="VersaClaw"
-LABEL description="VersaClaw Backend - FastAPI server for multi-modal AI Agent management"
+LABEL maintainer="NanoClaw"
+LABEL description="NanoClaw Backend - FastAPI server for multi-modal AI Agent management"
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -29,13 +29,16 @@ COPY backend/requirements.txt /app/requirements.txt
 # Install Python dependencies (nanobot-ai from PyPI)
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy API server
+# Copy backend application (modular structure)
 COPY backend/api_server.py /app/api_server.py
+COPY backend/stream_processor.py /app/stream_processor.py
+COPY backend/app /app/app
 
 # Create nanobot data directory structure
 RUN mkdir -p /root/.nanobot/sessions \
     && mkdir -p /root/.nanobot/workspace/memory \
-    && mkdir -p /root/.nanobot/workspace/skills
+    && mkdir -p /root/.nanobot/workspace/skills \
+    && mkdir -p /root/.nanobot/uploads/images/thumbnails
 
 # Expose port
 EXPOSE 18790

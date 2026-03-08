@@ -68,7 +68,24 @@ const TOOL_DESCRIPTIONS: Record<string, (args: Record<string, any>) => string> =
 
 // 从工具记录生成待办事项
 function generateTodosFromTools(toolRecords: ToolRecord[], activeToolCalls: ToolRecord[]): TodoItem[] {
-  const allTools = [...activeToolCalls, ...toolRecords]
+  // 使用 Map 按 id 去重，避免重复的待办事项
+  const allToolsMap = new Map<string, ToolRecord>()
+  // 先添加历史记录
+  toolRecords.forEach(tool => {
+    allToolsMap.set(tool.id, tool)
+  })
+  // 再更新活动工具的状态
+  activeToolCalls.forEach(tool => {
+    const existing = allToolsMap.get(tool.id)
+    if (existing) {
+      // 如果已存在，更新状态为 running
+      allToolsMap.set(tool.id, { ...existing, ...tool, status: 'running' })
+    } else {
+      allToolsMap.set(tool.id, tool)
+    }
+  })
+
+  const allTools = Array.from(allToolsMap.values())
   const todos: TodoItem[] = []
 
   allTools.forEach(tool => {
@@ -252,17 +269,17 @@ export default function RightPanel({
                 {runningCount > 0 && (
                   <span className="px-1.5 py-0.5 bg-blue-100 text-blue-700 text-xs rounded-full flex items-center gap-1">
                     <Loader2 className="w-3 h-3 animate-spin" />
-                    {runningCount}
+                    执行中{runningCount}
                   </span>
                 )}
                 {completedCount > 0 && (
                   <span className="px-1.5 py-0.5 bg-green-100 text-green-700 text-xs rounded-full">
-                    ✓{completedCount}
+                    完成{completedCount}
                   </span>
                 )}
                 {errorCount > 0 && (
                   <span className="px-1.5 py-0.5 bg-red-100 text-red-700 text-xs rounded-full">
-                    ✗{errorCount}
+                    失败{errorCount}
                   </span>
                 )}
               </div>
@@ -402,7 +419,7 @@ export default function RightPanel({
                 )}
                 {completedTodos.length > 0 && (
                   <span className="px-1.5 py-0.5 bg-green-100 text-green-700 text-xs rounded-full">
-                    {completedTodos.length} 完成
+                    完成{completedTodos.length}
                   </span>
                 )}
               </div>

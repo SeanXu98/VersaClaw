@@ -11,3 +11,6 @@ python-multipart>=0.0.6
 
 # HTTP client
 httpx[socks]>=0.25.0
+
+# Image processing (for thumbnails)
+Pillow>=10.0.0

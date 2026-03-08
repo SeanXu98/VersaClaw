@@ -8,6 +8,7 @@ import {
   Plus,
   ArrowLeft,
   ChevronDown,
+  ChevronUp,
   Loader2,
   CheckCircle,
   XCircle,
@@ -16,7 +17,8 @@ import {
   Menu,
   X,
   Eye,
-  Brain
+  Brain,
+  Wrench
 } from 'lucide-react'
 import Link from 'next/link'
 import RightPanel, { ToolRecord, TodoItem } from '@/components/RightPanel'
@@ -48,6 +50,68 @@ function getFullImageUrl(url: string): string {
   }
   // 相对路径，添加后端地址
   return `${BACKEND_URL}${url}`
+}
+
+// 可折叠的消息详情组件（思考过程、工具调用）
+function CollapsibleSection({
+  title,
+  icon: Icon,
+  children,
+  defaultCollapsed = true,
+  colorClass = 'amber'
+}: {
+  title: string
+  icon: React.ElementType
+  children: React.ReactNode
+  defaultCollapsed?: boolean
+  colorClass?: 'amber' | 'blue' | 'green'
+}) {
+  const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed)
+
+  const colorMap = {
+    amber: {
+      bg: 'bg-amber-50',
+      border: 'border-amber-200',
+      text: 'text-amber-700',
+      contentText: 'text-amber-800'
+    },
+    blue: {
+      bg: 'bg-blue-50',
+      border: 'border-blue-200',
+      text: 'text-blue-700',
+      contentText: 'text-blue-800'
+    },
+    green: {
+      bg: 'bg-green-50',
+      border: 'border-green-200',
+      text: 'text-green-700',
+      contentText: 'text-green-800'
+    }
+  }
+
+  const colors = colorMap[colorClass]
+
+  return (
+    <div className={`mb-2 ${colors.bg} rounded-lg border ${colors.border}`}>
+      <button
+        className="w-full flex items-center gap-2 p-2 text-left"
+        onClick={() => setIsCollapsed(!isCollapsed)}
+      >
+        <Icon className={`w-4 h-4 ${colors.text}`} />
+        <span className={`text-xs font-medium ${colors.text}`}>{title}</span>
+        {isCollapsed ? (
+          <ChevronDown className={`w-3 h-3 ${colors.text} ml-auto`} />
+        ) : (
+          <ChevronUp className={`w-3 h-3 ${colors.text} ml-auto`} />
+        )}
+      </button>
+      {!isCollapsed && (
+        <div className={`px-3 pb-2 text-xs ${colors.contentText} whitespace-pre-wrap break-words max-h-40 overflow-y-auto`}>
+          {children}
+        </div>
+      )}
+    </div>
+  )
 }
 
 // 从消息内容中提取文本（处理多模态格式）
@@ -151,6 +215,9 @@ export default function ChatPage() {
 
   // 图片上传相关状态
   const [pendingImages, setPendingImages] = useState<UploadedImage[]>([])
+
+  // 图片预览模态框状态
+  const [previewImage, setPreviewImage] = useState<string | null>(null)
 
   // 消息列表滚动引用
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -695,7 +762,9 @@ export default function ChatPage() {
                           className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-sm text-slate-700 transition-colors"
                         >
                           {isVisionModel() && (
-                            <Eye className="w-3.5 h-3.5 text-purple-500" title="支持图片" />
+                            <span title="支持图片">
+                              <Eye className="w-3.5 h-3.5 text-purple-500" />
+                            </span>
                           )}
                           <span className="font-medium">{selectedModel || '选择模型'}</span>
                           <ChevronDown className="w-4 h-4" />
@@ -780,7 +849,8 @@ export default function ChatPage() {
                                   key={img.id}
                                   src={getFullImageUrl(img.thumbnail_url || img.url)}
                                   alt={img.filename}
-                                  className="w-20 h-20 object-cover rounded-lg border border-white/20"
+                                  className="w-20 h-20 object-cover rounded-lg border border-white/20 cursor-pointer hover:opacity-80 transition-opacity"
+                                  onClick={() => setPreviewImage(getFullImageUrl(img.url))}
                                 />
                               ))}
                             </div>
@@ -806,25 +876,47 @@ export default function ChatPage() {
                                       }
                                     }}
                                     onClick={() => {
-                                      // 点击查看大图
-                                      window.open(`/api/upload/image/${actualId}`, '_blank')
+                                      // 点击在模态框中查看大图
+                                      setPreviewImage(`/api/upload/image/${actualId}`)
                                     }}
                                   />
                                 ) : null
                               }).filter(Boolean)}
                             </div>
                           )}
-                          {/* 历史消息中的推理过程展示 */}
+                          {/* 历史消息中的推理过程展示 - 可折叠 */}
                           {msg.role === 'assistant' && msg.reasoningContent && (
-                            <div className="mb-3 p-3 bg-amber-50 rounded-lg border border-amber-200">
-                              <div className="flex items-center gap-2 text-amber-700 text-xs font-medium mb-2">
-                                <Brain className="w-4 h-4" />
-                                <span>思考过程</span>
-                              </div>
-                              <div className="text-xs text-amber-800 whitespace-pre-wrap break-words max-h-40 overflow-y-auto">
-                                {msg.reasoningContent}
-                              </div>
-                            </div>
+                            <CollapsibleSection
+                              title="思考过程"
+                              icon={Brain}
+                              colorClass="amber"
+                              defaultCollapsed={true}
+                            >
+                              {msg.reasoningContent}
+                            </CollapsibleSection>
+                          )}
+                          {/* 历史消息中的工具调用展示 - 可折叠 */}
+                          {msg.role === 'assistant' && msg.toolCalls && msg.toolCalls.length > 0 && (
+                            <CollapsibleSection
+                              title={`工具调用 (${msg.toolCalls.length})`}
+                              icon={Wrench}
+                              colorClass="blue"
+                              defaultCollapsed={true}
+                            >
+                              {msg.toolCalls.map((tc, i) => (
+                                <div key={tc.id || i} className="mb-2 pb-2 border-b border-blue-100 last:border-b-0">
+                                  <div className="font-medium">{tc.name}</div>
+                                  <div className="text-blue-600 text-xs mt-1">
+                                    参数: {JSON.stringify(tc.arguments, null, 2)}
+                                  </div>
+                                  {tc.result && (
+                                    <div className="text-green-600 text-xs mt-1">
+                                      结果: {tc.result.substring(0, 200)}{tc.result.length > 200 ? '...' : ''}
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </CollapsibleSection>
                           )}
                           {/* 消息内容 */}
                           <div className="text-sm whitespace-pre-wrap break-words">
@@ -960,6 +1052,27 @@ export default function ChatPage() {
           </div>
         )}
       </div>
+
+      {/* 图片预览模态框 */}
+      {previewImage && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4"
+          onClick={() => setPreviewImage(null)}
+        >
+          <button
+            className="absolute top-4 right-4 p-2 bg-white/10 hover:bg-white/20 rounded-full text-white transition-colors"
+            onClick={() => setPreviewImage(null)}
+          >
+            <X className="w-6 h-6" />
+          </button>
+          <img
+            src={previewImage}
+            alt="Preview"
+            className="max-w-full max-h-full object-contain rounded-lg"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
     </div>
   )
 }

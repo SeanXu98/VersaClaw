@@ -32,37 +32,89 @@
 - 🎯 **一体化管理** - 前后端集成，开箱即用
 - 📦 **简洁依赖** - 通过 PyPI 引用 nanobot-ai，代码更精简
 - 🐳 **容器化部署** - 支持 Docker 一键部署
-- 🚀 **实时流式输出** - SSE 支持，实时显示 AI 响应
-- 🔧 **灵活配置** - 支持 15+ LLM 提供商
-- 🎨 **现代化 UI** - Glass-morphism 设计风格
-- 🔮 **多模态规划** - 未来计划支持图像、语音等多模态扩展能力（建设中）
+- 🚀 **实时流式输出** - SSE 支持，实时显示 AI 响应和推理过程
+- 🔧 **灵活配置** - 支持 15+ LLM 提供商，包括国内外主流模型
+- 🎨 **现代化 UI** - Glass-morphism 设计风格，响应式布局
+- 🖼️ **多模态支持** - 已支持图片上传和 Vision 模型（GPT-4o、Claude、Gemini 等）
+- 🤖 **Agent 执行面板** - 实时显示工具调用、待办事项和执行状态
 
 ---
 
 ## 架构概览
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                       VersaClaw                              │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  ┌─────────────────┐     ┌─────────────────────────────┐   │
-│  │   Frontend      │     │       Backend               │   │
-│  │   (Next.js)     │────▶│    (FastAPI + Nanobot)      │   │
-│  │   Port: 5000    │     │    Port: 18790              │   │
-│  └─────────────────┘     └─────────────────────────────┘   │
-│         │                          │                        │
-│    frontend/                  backend/                      │
-│    ├── app/                   ├── api_server.py             │
-│    ├── lib/                   └── requirements.txt          │
-│    └── types/                       │                       │
-│                                     ▼                       │
-│                          ┌──────────────────┐              │
-│                          │  nanobot-ai      │ (PyPI)       │
-│                          │  ~/.nanobot/     │              │
-│                          └──────────────────┘              │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           VersaClaw 架构                                  │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  ┌───────────────────────┐         ┌───────────────────────────────┐   │
+│  │      Frontend         │         │          Backend               │   │
+│  │      (Next.js)        │────────▶│     (FastAPI + Nanobot)       │   │
+│  │      Port: 5000       │         │     Port: 18790                │   │
+│  └───────────────────────┘         └───────────────────────────────┘   │
+│           │                                  │                          │
+│      frontend/                          backend/                        │
+│      ├── app/                           ├── api_server.py   (入口)     │
+│      │   ├── api/                       ├── stream_processor.py        │
+│      │   │   ├── chat/                  └── app/                       │
+│      │   │   ├── models/                    ├── main.py    (应用工厂)  │
+│      │   │   └── upload/                    ├── config.py  (配置)      │
+│      │   ├── chat/                          ├── dependencies.py        │
+│      │   └── models/                        ├── models/    (数据模型)  │
+│      ├── components/                        ├── routers/   (API路由)   │
+│      │   ├── RightPanel.tsx                 ├── services/  (业务逻辑)  │
+│      │   └── ImageUploader.tsx              └── utils/     (工具函数)  │
+│      ├── lib/                                       │                   │
+│      │   └── nanobot/                               ▼                   │
+│      ├── utils/                         ┌──────────────────────────┐   │
+│      │   └── model.ts                   │      nanobot-ai          │(PyPI)
+│      └── types/                         │      LiteLLM             │   │
+│          └── nanobot.ts                 └──────────────────────────┘   │
+│                                                    │                   │
+│                                                    ▼                   │
+│                                     ┌──────────────────────────┐       │
+│                                     │      ~/.nanobot/         │       │
+│                                     │  ├── config.json         │       │
+│                                     │  ├── sessions/           │       │
+│                                     │  ├── workspace/          │       │
+│                                     │  └── uploads/images/     │       │
+│                                     └──────────────────────────┘       │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
+
+### 核心模块说明
+
+#### 前端模块 (Frontend)
+
+| 模块 | 文件 | 功能 |
+|------|------|------|
+| **Right Panel** | `components/RightPanel.tsx` | Agent 执行面板，显示工具调用和待办事项 |
+| **Image Uploader** | `components/ImageUploader.tsx` | 图片上传组件，支持拖拽和多图上传 |
+| **Chat Page** | `app/chat/page.tsx` | 聊天页面，支持流式响应和多模态消息 |
+| **Models Page** | `app/models/page.tsx` | 模型管理页面，配置 LLM 提供商 |
+| **Model Utils** | `utils/model.ts` | Vision 模型检测工具函数 |
+| **Type Definitions** | `types/nanobot.ts` | 完整的 TypeScript 类型定义 |
+| **Nanobot Lib** | `lib/nanobot/` | Nanobot 文件系统访问层 |
+
+#### 后端模块 (Backend)
+
+| 模块 | 文件 | 功能 |
+|------|------|------|
+| **API Server** | `api_server.py` | FastAPI 服务入口，启动应用 |
+| **Stream Processor** | `stream_processor.py` | SSE 流式处理封装，支持实时响应 |
+| **Main App** | `app/main.py` | FastAPI 应用工厂，配置中间件和路由 |
+| **Config** | `app/config.py` | 应用配置和 Provider 元数据 |
+| **Dependencies** | `app/dependencies.py` | 依赖注入（服务实例获取） |
+| **Schemas** | `app/models/schemas.py` | Pydantic 请求/响应数据模型 |
+| **Chat Router** | `app/routers/chat.py` | 聊天 API（流式/非流式） |
+| **Sessions Router** | `app/routers/sessions.py` | 会话管理 API |
+| **Images Router** | `app/routers/images.py` | 图片上传 API |
+| **Models Router** | `app/routers/models.py` | Provider 管理 API |
+| **Config Router** | `app/routers/config.py` | 配置管理 API |
+| **Nanobot Service** | `app/services/nanobot_service.py` | Nanobot 生命周期管理服务 |
+| **Image Service** | `app/services/image_service.py` | 图片处理服务 |
+| **Vision Utils** | `app/utils/vision.py` | Vision 模型检测 |
+| **Helpers** | `app/utils/helpers.py` | 通用工具函数 |
 
 ---
 
@@ -87,16 +139,19 @@
 ### 前端功能
 
 - **仪表板** - 系统状态概览、快速导航
-- **模型管理** - 15+ LLM 提供商配置
+- **模型管理** - 15+ LLM 提供商配置，支持 Vision 模型标识
   - 网关：OpenRouter、AIHubMix、Custom
   - 国际：Anthropic、OpenAI、DeepSeek、Groq、Gemini
   - 国内：通义千问、Moonshot/Kimi、智谱GLM、MiniMax
   - 本地：vLLM
 - **聊天界面** - 类 ChatGPT 的对话体验
-  - 会话管理
-  - 模型选择
-  - 实时流式输出
+  - 会话管理（新建、切换、删除）
+  - 模型选择（支持 Vision 模型）
+  - 实时流式输出（SSE）
+  - 推理过程展示（DeepSeek-R1 等思考模型）
   - 工具调用可视化
+  - **图片上传与预览**（Vision 模型）
+  - Agent 执行状态面板
 - **技能管理** - 自定义技能 SKILL.md 编辑
 - **记忆管理** - 长期记忆和历史日志查看
 - **渠道管理** - IM 平台集成（Telegram、Discord、Slack 等）
@@ -106,9 +161,11 @@
 
 - **FastAPI 服务** - 高性能异步 API
 - **SSE 流式响应** - 实时推送 AI 响应
+- **多模态支持** - 图片上传、处理、Vision 模型调用
 - **会话管理** - 创建、读取、删除会话
 - **配置热重载** - 无需重启更新配置
 - **健康检查** - 服务状态监控
+- **图片存储** - 本地文件存储 + 缩略图生成
 
 ---
 
@@ -116,18 +173,23 @@
 
 ### 前端 (`frontend/`)
 - **框架**: Next.js 16 (App Router) + React 19
-- **语言**: TypeScript 5.9
+- **语言**: TypeScript 5.x
 - **样式**: Tailwind CSS 3.4
 - **图标**: Lucide React
+- **状态管理**: React Hooks + useState/useEffect
+- **HTTP 客户端**: Fetch API + SSE (EventSource)
 
 ### 后端 (`backend/`)
 - **框架**: FastAPI + Uvicorn
 - **核心**: [nanobot-ai](https://pypi.org/project/nanobot-ai/) (PyPI)
-- **LLM 集成**: LiteLLM
+- **LLM 集成**: LiteLLM（支持 100+ 模型）
+- **图片处理**: Pillow（缩略图生成）
+- **异步支持**: asyncio + aiofiles
 
 ### 部署
 - **容器**: Docker + Docker Compose
-- **数据持久化**: Volume 挂载
+- **数据持久化**: Volume 挂载 (~/.nanobot/)
+- **健康检查**: HTTP Health Check Endpoint
 
 ---
 
@@ -299,30 +361,73 @@ nanobot onboard
 
 ```
 VersaClaw/
-├── frontend/                    # 前端项目 (Next.js)
-│   ├── app/                     # 页面和 API 路由
+├── frontend/                    # 前端项目 (Next.js 16)
+│   ├── app/                     # 页面和 API 路由 (App Router)
 │   │   ├── api/                 # API 代理层
 │   │   │   ├── chat/            # 聊天相关 API
+│   │   │   │   ├── stream/      # SSE 流式聊天
+│   │   │   │   └── sessions/    # 会话管理
 │   │   │   ├── models/          # 模型管理 API
-│   │   │   └── ...
+│   │   │   │   ├── available/   # 获取可用模型
+│   │   │   │   └── providers/   # 提供商配置
+│   │   │   ├── upload/          # 图片上传 API
+│   │   │   │   └── image/       # 图片上传处理
+│   │   │   └── system/          # 系统状态 API
 │   │   ├── chat/                # 聊天页面
 │   │   ├── models/              # 模型管理页面
+│   │   ├── skills/              # 技能管理页面
+│   │   ├── memory/              # 记忆管理页面
+│   │   ├── channels/            # 渠道管理页面
+│   │   ├── cron/                # 定时任务页面
+│   │   ├── settings/            # 系统设置页面
+│   │   ├── logs/                # 日志查看页面
 │   │   └── page.tsx             # 仪表板主页
+│   ├── components/              # React 组件
+│   │   ├── RightPanel.tsx       # Agent 执行面板
+│   │   └── ImageUploader.tsx    # 图片上传组件
 │   ├── lib/                     # 工具函数库
 │   │   └── nanobot/             # Nanobot 文件系统访问层
+│   ├── utils/                   # 工具函数
+│   │   └── model.ts             # 模型相关工具（Vision 检测等）
 │   ├── types/                   # TypeScript 类型定义
+│   │   └── nanobot.ts           # 完整类型定义（含多模态）
 │   ├── package.json             # Node.js 配置
 │   ├── next.config.js           # Next.js 配置
 │   └── tailwind.config.ts       # Tailwind 配置
 │
-├── backend/                     # 后端项目 (Python)
+├── backend/                     # 后端项目 (Python 3.11+)
 │   ├── api_server.py            # FastAPI 服务入口
-│   └── requirements.txt         # Python 依赖 (包含 nanobot-ai)
+│   ├── stream_processor.py      # SSE 流式处理封装
+│   ├── requirements.txt         # Python 依赖
+│   └── app/                     # 应用模块包
+│       ├── __init__.py          # 包初始化
+│       ├── main.py              # FastAPI 应用工厂
+│       ├── config.py            # 配置管理（含 Provider 元数据）
+│       ├── dependencies.py      # 依赖注入
+│       ├── models/              # 数据模型
+│       │   ├── __init__.py
+│       │   └── schemas.py       # Pydantic 请求/响应模型
+│       ├── routers/             # API 路由
+│       │   ├── __init__.py
+│       │   ├── chat.py          # 聊天 API（流式/非流式）
+│       │   ├── sessions.py      # 会话管理 API
+│       │   ├── images.py        # 图片上传 API
+│       │   ├── models.py        # Provider 管理 API
+│       │   └── config.py        # 配置管理 API
+│       ├── services/            # 业务逻辑层
+│       │   ├── __init__.py
+│       │   ├── nanobot_service.py  # Nanobot 生命周期管理
+│       │   └── image_service.py    # 图片处理服务
+│       └── utils/               # 工具函数
+│           ├── __init__.py
+│           ├── vision.py        # Vision 模型检测
+│           └── helpers.py       # 通用辅助函数
 │
 ├── docker-compose.yml           # Docker Compose 配置
-├── Dockerfile.frontend          # 前端 Dockerfile
+├── Dockerfile.frontend          # 前端 Dockerfile (多阶段构建)
 ├── Dockerfile.backend           # 后端 Dockerfile
 ├── .env.local.example           # 环境变量示例
+├── .gitignore                   # Git 忽略配置
 ├── README.md                    # 项目说明
 └── LICENSE                      # MIT 许可证
 ```
@@ -333,22 +438,66 @@ VersaClaw/
 
 ### 后端 API 端点
 
+#### 基础接口
+
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | `GET` | `/` | 服务信息 |
 | `GET` | `/health` | 健康检查 |
 | `GET` | `/api/config` | 获取配置 |
 | `POST` | `/api/config/reload` | 重载配置 |
+
+#### 聊天接口
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
 | `POST` | `/api/chat` | 发送消息（同步） |
-| `POST` | `/api/chat/stream` | 发送消息（SSE 流式） |
-| `GET` | `/api/chat/sessions` | 获取会话列表 |
-| `GET` | `/api/chat/sessions/{key}` | 获取会话详情 |
-| `DELETE` | `/api/chat/sessions/{key}` | 删除会话 |
+| `POST` | `/api/chat/stream` | 发送消息（SSE 流式，支持图片） |
+| `GET` | `/api/sessions` | 获取会话列表 |
+| `GET` | `/api/sessions/{key}` | 获取会话详情 |
+| `DELETE` | `/api/sessions/{key}` | 删除会话 |
+
+#### 图片上传接口（多模态）
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `POST` | `/api/upload/image` | 上传单张图片 |
+| `GET` | `/api/upload/image/{id}` | 获取图片 |
+| `GET` | `/api/upload/image/{id}/thumbnail` | 获取缩略图 |
+| `DELETE` | `/api/upload/image/{id}` | 删除图片 |
+
+#### 模型管理接口
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
 | `GET` | `/api/models/available` | 获取可用模型列表 |
 | `GET` | `/api/models/providers` | 获取提供商配置 |
+| `GET` | `/api/models/providers/{name}` | 获取单个提供商配置 |
+| `POST` | `/api/models/providers/{name}` | 保存提供商配置 |
+| `DELETE` | `/api/models/providers/{name}` | 删除提供商配置 |
+| `GET` | `/api/models/{model}/capabilities` | 获取模型能力（Vision/Tools） |
+
+#### 其他接口
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
 | `GET` | `/api/skills` | 获取技能列表 |
 | `GET` | `/api/memory` | 获取记忆内容 |
 | `GET` | `/api/cron` | 获取定时任务 |
+
+### SSE 流式事件类型
+
+| 事件类型 | 说明 |
+|----------|------|
+| `content` | 文本内容块 |
+| `reasoning` | 推理内容（DeepSeek-R1 等思考模型） |
+| `tool_call_start` | 工具调用开始 |
+| `tool_call_end` | 工具调用结束 |
+| `iteration_start` | Agent 迭代开始 |
+| `image_processing` | 图片处理状态 |
+| `heartbeat` | 心跳（保持连接） |
+| `done` | 处理完成 |
+| `error` | 错误 |
 
 ### 示例请求
 
@@ -361,11 +510,28 @@ curl -X POST http://localhost:18790/api/chat/stream \
   -H "Content-Type: application/json" \
   -d '{"message": "你好", "session_key": "test:123"}'
 
+# 发送带图片的消息（多模态）
+curl -X POST http://localhost:18790/api/chat/stream \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "这张图片里有什么？",
+    "session_key": "test:123",
+    "model": "gpt-4o",
+    "images": [{"id": "uuid", "url": "data:image/png;base64,...", "mime_type": "image/png"}]
+  }'
+
+# 上传图片
+curl -X POST http://localhost:18790/api/upload/image \
+  -F "file=@/path/to/image.png"
+
 # 获取会话列表
-curl http://localhost:18790/api/chat/sessions
+curl http://localhost:18790/api/sessions
 
 # 获取配置
 curl http://localhost:18790/api/config
+
+# 检查模型能力
+curl http://localhost:18790/api/models/gpt-4o/capabilities
 ```
 
 完整 API 文档请访问：http://localhost:18790/docs
@@ -422,15 +588,21 @@ docker compose build
 - [x] 多 LLM 提供商支持
 - [x] 会话管理
 - [x] 技能/记忆管理
+- [x] SSE 流式响应
+- [x] Agent 执行状态面板
 
-### v0.2.x (建设中)
-- [ ] 图像理解
+### v0.2.x (已完成)
+- [x] 图像理解（Vision 模型支持）
+- [x] 图片上传与预览
+- [x] 多模态消息处理
+- [x] Vision 模型自动检测
+- [x] 推理过程展示（DeepSeek-R1 等）
+
+### v0.3.x (规划中)
 - [ ] 语音输入/输出
-- [ ] 文件上传处理
-
-### v0.3.x (建设中)
 - [ ] 视频理解
 - [ ] 实时语音对话
+- [ ] 文件上传处理（PDF、Word 等）
 - [ ] 多模态 Agent 编排
 
 ---
@@ -439,18 +611,21 @@ docker compose build
 
 VersaClaw 的架构设计充分考虑了未来多模态能力的扩展，以下是计划中的接入方向：
 
-### 🖼️ 图像模态（优先）
+### 🖼️ 图像模态（已实现）
 
 | 功能 | 技术方案 | 状态 |
 |------|----------|------|
-| 图像理解 | GPT-4V / Claude Vision / Gemini Vision | 计划中 |
-| 图像生成 | DALL-E 3 / Stable Diffusion / Midjourney API | 规划中 |
+| 图像理解 | GPT-4o / Claude Vision / Gemini Vision / GLM-4V | ✅ 已实现 |
+| 图片上传 | FormData + 后端存储 + 缩略图生成 | ✅ 已实现 |
+| 多图上传 | 支持一次上传多张图片 | ✅ 已实现 |
+| 拖拽上传 | HTML5 Drag & Drop API | ✅ 已实现 |
+| 图片预览 | 缩略图 + 点击查看大图 | ✅ 已实现 |
+| 图像生成 | DALL-E 3 / Stable Diffusion API | 规划中 |
 | 图像编辑 | Inpainting / Outpainting 能力 | 规划中 |
-| OCR 文字识别 | GPT-4V 内置 / Tesseract 备选 | 计划中 |
 
-**预期用户体验**：
+**已实现的用户体验**：
 ```
-上传图片 → Vision 模型分析 → 结合上下文对话 → 可选生成新图片
+上传图片（拖拽/点击） → 自动压缩缩略图 → 选择 Vision 模型 → 发送并分析
 ```
 
 ### 🎤 语音模态

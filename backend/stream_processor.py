@@ -287,10 +287,11 @@ class StreamProcessor:
         """
         message_text = content
         media_files = []
+        original_image_ids = []
 
         # 处理多模态内容
         if isinstance(content, list):
-            message_text, media_files = await self._process_multimodal_content(content)
+            message_text, media_files, original_image_ids = await self._process_multimodal_content(content, images)
 
         # 根据是否有媒体文件选择处理方式
         if media_files:
@@ -300,7 +301,8 @@ class StreamProcessor:
                 media_files=media_files,
                 session_key=session_key,
                 channel=channel,
-                on_progress=on_progress
+                on_progress=on_progress,
+                images=images  # 传递原始图片信息，用于不删除已上传的图片
             )
         else:
             # 使用 _process_message 直接获取完整响应
@@ -313,20 +315,33 @@ class StreamProcessor:
 
         return result or {"content": ""}
 
-    async def _process_multimodal_content(self, content: list) -> tuple[str, list]:
+    async def _process_multimodal_content(self, content: list, images: Optional[List[ImageData]] = None) -> tuple[str, list, list]:
         """
-        处理多模态内容，提取文本并保存图片到临时文件
+        处理多模态内容，提取文本并准备图片文件
 
         Args:
             content: 多模态内容列表
+            images: 原始图片信息列表（包含 id, url 等）
 
         Returns:
-            (文本内容, 临时图片文件路径列表)
+            (文本内容, 图片文件路径列表, 原始图片ID列表)
         """
         text_parts = []
         media_files = []
+        original_image_ids = []
 
         self.upload_dir.mkdir(parents=True, exist_ok=True)
+
+        # 创建图片 URL 到 ID 的映射
+        image_id_map = {}
+        if images:
+            for img in images:
+                # 图片 ID 对应的文件路径
+                for ext in [".png", ".jpg", ".jpeg", ".gif", ".webp", ""]:
+                    potential_path = self.upload_dir / f"{img.id}{ext}"
+                    if potential_path.exists():
+                        image_id_map[img.id] = str(potential_path)
+                        break
 
         for block in content:
             if not isinstance(block, dict):
@@ -339,13 +354,60 @@ class StreamProcessor:
                 image_url = block.get("image_url", {}).get("url", "")
 
                 if image_url.startswith("data:image/"):
-                    # 从 base64 数据保存图片
-                    temp_path = await self._save_base64_image(image_url)
-                    if temp_path:
-                        media_files.append(temp_path)
-                        text_parts.append(f"[图片: {Path(temp_path).name}]")
+                    # 尝试匹配原始图片 ID
+                    matched_id = self._match_base64_to_image(image_url, image_id_map)
 
-        return "\n".join(text_parts), media_files
+                    if matched_id and matched_id in image_id_map:
+                        # 使用原始上传的图片
+                        original_path = image_id_map[matched_id]
+                        media_files.append(original_path)
+                        original_image_ids.append(matched_id)
+                        text_parts.append(f"[图片: {matched_id}.png]")
+                    else:
+                        # 无法匹配，保存为临时文件（兼容旧逻辑）
+                        temp_path = await self._save_base64_image(image_url)
+                        if temp_path:
+                            media_files.append(temp_path)
+                            text_parts.append(f"[图片: {Path(temp_path).name}]")
+
+        return "\n".join(text_parts), media_files, original_image_ids
+
+    def _match_base64_to_image(self, data_url: str, image_id_map: dict) -> Optional[str]:
+        """
+        尝试将 base64 数据匹配到原始图片
+
+        Args:
+            data_url: base64 数据 URL
+            image_id_map: 图片 ID 到文件路径的映射
+
+        Returns:
+            匹配的图片 ID，未匹配返回 None
+        """
+        try:
+            # 提取 base64 数据
+            _, data = data_url.split(",", 1)
+            incoming_bytes = base64.b64decode(data)
+
+            # 计算哈希用于快速比较
+            import hashlib
+            incoming_hash = hashlib.md5(incoming_bytes).hexdigest()
+
+            # 遍历已上传的图片进行匹配
+            for image_id, file_path in image_id_map.items():
+                try:
+                    with open(file_path, "rb") as f:
+                        file_bytes = f.read()
+                    file_hash = hashlib.md5(file_bytes).hexdigest()
+
+                    if incoming_hash == file_hash:
+                        return image_id
+                except Exception:
+                    continue
+
+        except Exception as e:
+            print(f"Error matching base64 to image: {e}")
+
+        return None
 
     async def _save_base64_image(self, data_url: str) -> Optional[str]:
         """
@@ -383,7 +445,8 @@ class StreamProcessor:
         media_files: list,
         session_key: str,
         channel: str,
-        on_progress: Callable
+        on_progress: Callable,
+        images: Optional[List[ImageData]] = None
     ) -> dict:
         """
         使用 _process_message 处理带媒体的消息
@@ -397,6 +460,7 @@ class StreamProcessor:
             session_key: 会话标识
             channel: 渠道标识
             on_progress: 进度回调
+            images: 原始图片信息列表（用于判断哪些文件不应删除）
 
         Returns:
             包含 content 和 reasoning_content 的字典
@@ -448,12 +512,15 @@ class StreamProcessor:
                     traceback.print_exc()
 
         finally:
-            # 清理临时文件
+            # 清理临时文件（只删除 temp_ 开头的临时文件，保留原始上传的图片）
             for temp_file in media_files:
-                try:
-                    Path(temp_file).unlink(missing_ok=True)
-                except Exception:
-                    pass
+                file_name = Path(temp_file).name
+                # 只删除 temp_ 开头的临时文件
+                if file_name.startswith("temp_"):
+                    try:
+                        Path(temp_file).unlink(missing_ok=True)
+                    except Exception:
+                        pass
 
         return result
 
