@@ -251,6 +251,44 @@ volumes:
   - ~/.nanobot:/root/.nanobot
 ```
 
+#### Docker 目录映射说明
+
+默认配置下，容器的目录映射关系如下：
+
+| 容器内路径 | 本地路径 | 存储内容 |
+|-----------|---------|---------|
+| `/app` | 无映射（镜像内） | 后端代码运行目录 |
+| `/root/.nanobot` | Docker Volume | Nanobot 配置和数据 |
+| `/root/.nanobot/config.json` | Docker Volume | LLM 提供商配置（API Key 等） |
+| `/root/.nanobot/sessions/` | Docker Volume | 会话历史记录 |
+| `/root/.nanobot/workspace/` | Docker Volume | 技能和记忆文件 |
+| `/root/.nanobot/uploads/images/` | Docker Volume | 上传的图片文件 |
+
+**使用本地目录映射的好处：**
+- 直接在本地查看和编辑配置文件
+- 方便数据备份和迁移
+- 便于调试和开发
+
+**切换到本地目录映射：**
+
+1. 修改 `docker-compose.yml` 中的 backend 服务配置：
+```yaml
+services:
+  backend:
+    # ...
+    volumes:
+      # 注释掉 Docker Volume
+      # - versaclaw-data:/root/.nanobot
+      # 使用本地目录映射
+      - ~/.nanobot:/root/.nanobot
+```
+
+2. 重新创建容器：
+```bash
+docker compose down
+docker compose up -d
+```
+
 ---
 
 ### 单独启动前后端
