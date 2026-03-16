@@ -208,6 +208,13 @@ export default function ChatPage() {
   const [currentIteration, setCurrentIteration] = useState(0)
   const [maxIterations, setMaxIterations] = useState(0)
 
+  // 模型选择状态
+  const [selectedModelInfo, setSelectedModelInfo] = useState<{
+    model: string
+    modelType: 'text' | 'vision'
+    reason: string
+  } | null>(null)
+
   // 右侧面板状态
   const [showRightPanel, setShowRightPanel] = useState(true)
   const [toolRecords, setToolRecords] = useState<ToolRecord[]>([])
@@ -320,6 +327,17 @@ export default function ChatPage() {
   // 处理流式事件
   const handleStreamEvent = (event: StreamEvent) => {
     switch (event.type) {
+      case 'model_selection': {
+        const modelEvent = event as any
+        setSelectedModelInfo({
+          model: modelEvent.model,
+          modelType: modelEvent.model_type,
+          reason: modelEvent.reason
+        })
+        console.log(`[Model Selection] ${modelEvent.model} (${modelEvent.model_type}): ${modelEvent.reason}`)
+        break
+      }
+
       case 'content':
         setStreamingContent(prev => prev + (event as ContentStreamEvent).content)
         break
@@ -441,6 +459,7 @@ export default function ChatPage() {
     setActiveToolCalls([])
     setCurrentIteration(0)
     setMaxIterations(0)
+    setSelectedModelInfo(null)
     abortControllerRef.current = null
   }
 
@@ -939,6 +958,20 @@ export default function ChatPage() {
                     {isStreaming && (
                       <div className="flex justify-start">
                         <div className="max-w-[85%] rounded-2xl px-4 py-3 bg-white text-slate-800 border border-slate-200 shadow-sm">
+                          {/* 模型选择信息 */}
+                          {selectedModelInfo && (
+                            <div className="mb-3 px-3 py-2 bg-purple-50 rounded-lg border border-purple-200">
+                              <div className="flex items-center gap-2 text-purple-700 text-xs">
+                                {selectedModelInfo.modelType === 'vision' ? (
+                                  <Eye className="w-3.5 h-3.5" />
+                                ) : (
+                                  <MessageSquare className="w-3.5 h-3.5" />
+                                )}
+                                <span className="font-medium">{selectedModelInfo.model}</span>
+                                <span className="text-purple-500">({selectedModelInfo.reason})</span>
+                              </div>
+                            </div>
+                          )}
                           {/* 推理过程 - 折叠展示 */}
                           {streamingReasoning && (
                             <div className="mb-3 p-3 bg-amber-50 rounded-lg border border-amber-200">

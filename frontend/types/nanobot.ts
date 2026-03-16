@@ -499,6 +499,7 @@ export type StreamEventType =
   | 'heartbeat'
   | 'done'
   | 'error'
+  | 'model_selection'  // 新增：模型选择事件
 
 /**
  * Base stream event
@@ -587,6 +588,22 @@ export interface ErrorStreamEvent extends BaseStreamEvent {
 }
 
 /**
+ * Model selection event - sent when model is automatically selected
+ */
+export interface ModelSelectionEvent extends BaseStreamEvent {
+  type: 'model_selection'
+  model: string
+  model_type: 'text' | 'vision'
+  fallback_used: boolean
+  reason: string
+  features: {
+    has_images: boolean
+    image_count: number
+    task_type: string
+  }
+}
+
+/**
  * Union type for all stream events
  */
 export type StreamEvent =
@@ -599,6 +616,7 @@ export type StreamEvent =
   | HeartbeatStreamEvent
   | DoneStreamEvent
   | ErrorStreamEvent
+  | ModelSelectionEvent
 
 /**
  * Tool call state for UI display

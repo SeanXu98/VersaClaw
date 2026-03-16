@@ -10,7 +10,8 @@ Stream Processor - 流式处理封装模块
 1. 封装流式处理逻辑，提供清晰的接口
 2. 保留 nanobot 的全部 Agent 能力（工具调用、会话管理、memory）
 3. 支持多模态消息（图片）
-4. 代码可维护，易于未来迁移
+4. 集成扩展层的智能模型调度
+5. 代码可维护，易于未来迁移
 
 使用方式：
     processor = StreamProcessor(agent_loop)
@@ -21,11 +22,24 @@ Stream Processor - 流式处理封装模块
 import asyncio
 import base64
 import json
+import logging
 import re
 import uuid
 from pathlib import Path
 from typing import AsyncGenerator, Callable, List, Optional, Any
 from dataclasses import dataclass
+
+# 导入扩展层组件
+from app.extension import (
+    RequestFeatureAnalyzer,
+    RequestFeatures,
+    ModelScheduler,
+    ModelSelectionResult,
+    EnhancedAgentLoop,
+)
+
+# 配置日志
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -70,7 +84,8 @@ EVENT_TYPES = {
     "ITERATION_START": "iteration_start",
     "HEARTBEAT": "heartbeat",
     "DONE": "done",
-    "ERROR": "error"
+    "ERROR": "error",
+    "MODEL_SELECTION": "model_selection",  # 新增：模型选择事件
 }
 
 
@@ -80,6 +95,11 @@ class StreamProcessor:
 
     封装了使用 nanobot AgentLoop 进行流式消息处理的逻辑。
     通过 on_progress 回调和 asyncio.Queue 实现流式输出。
+
+    增强功能：
+    - 集成 ModelScheduler 进行智能模型选择
+    - 使用 RequestFeatureAnalyzer 分析请求特征
+    - 发送模型选择事件通知前端
 
     注意：
     - process_direct 方法的 on_progress 回调主要在工具调用时触发
@@ -92,19 +112,33 @@ class StreamProcessor:
         self,
         agent_loop: Any,
         upload_dir: Optional[str] = None,
-        vision_check_fn: Optional[Callable[[str], bool]] = None
+        vision_check_fn: Optional[Callable[[str], bool]] = None,
+        model_scheduler: Optional[ModelScheduler] = None,
     ):
         """
         初始化流式处理器
 
         Args:
-            agent_loop: nanobot AgentLoop 实例
+            agent_loop: nanobot AgentLoop 实例（可能是 EnhancedAgentLoop）
             upload_dir: 图片上传目录路径
-            vision_check_fn: Vision 模型检测函数
+            vision_check_fn: Vision 模型检测函数（已废弃，使用 ModelScheduler）
+            model_scheduler: 模型调度器实例
         """
         self.agent_loop = agent_loop
         self.upload_dir = Path(upload_dir or Path.home() / ".nanobot" / "uploads" / "images")
-        self.vision_check_fn = vision_check_fn or self._default_vision_check
+        
+        # 初始化模型调度器
+        if model_scheduler:
+            self.model_scheduler = model_scheduler
+        elif isinstance(agent_loop, EnhancedAgentLoop):
+            self.model_scheduler = agent_loop.get_scheduler()
+        else:
+            # 兼容旧逻辑
+            self.model_scheduler = None
+            self._vision_check_fn = vision_check_fn or self._default_vision_check
+        
+        # 初始化请求特征分析器
+        self.feature_analyzer = RequestFeatureAnalyzer(self.upload_dir)
 
     def _default_vision_check(self, model: str) -> bool:
         """默认的 Vision 模型检测"""
@@ -117,6 +151,12 @@ class StreamProcessor:
             "glm-4v", "glm-4.6v", "glm-4.1v",  # 智谱 GLM Vision 系列
         ]
         return any(p in model.lower() for p in patterns)
+
+    def _is_vision_model(self, model: str) -> bool:
+        """检查模型是否支持视觉能力"""
+        if self.model_scheduler:
+            return self.model_scheduler.is_vision_model(model)
+        return self._vision_check_fn(model)
 
     async def process_stream(
         self,
@@ -134,16 +174,46 @@ class StreamProcessor:
             content: 消息内容（字符串或多模态内容列表）
             session_key: 会话标识
             images: 图片列表
-            model: 使用的模型
+            model: 使用的模型（可选，不指定则自动选择）
             channel: 渠道标识
             timeout: 超时时间（秒）
 
         Yields:
             SSE 格式的事件字符串 "data: {...}\n\n"
         """
+        # 分析请求特征
+        features = self.feature_analyzer.analyze(content)
+        logger.info(f"[StreamProcessor] 请求特征: {features.summary}")
+        
+        # 智能模型选择
+        if self.model_scheduler and not model:
+            selection = self.model_scheduler.select_model(features)
+            model = selection.model
+            
+            # 发送模型选择事件
+            yield self._format_event(StreamEvent(
+                type="model_selection",
+                data={
+                    "model": selection.model,
+                    "model_type": selection.model_type,
+                    "fallback_used": selection.fallback_used,
+                    "reason": selection.reason,
+                    "features": {
+                        "has_images": features.has_images,
+                        "image_count": features.image_count,
+                        "task_type": features.task_type,
+                    },
+                }
+            ))
+            
+            logger.info(
+                f"[StreamProcessor] 模型选择: {selection.model} "
+                f"(类型: {selection.model_type}, 原因: {selection.reason})"
+            )
+        
         # 检查模型是否支持 Vision（如果有图片）
         if images and model:
-            if not self.vision_check_fn(model):
+            if not self._is_vision_model(model):
                 yield self._format_event(StreamEvent(
                     type="error",
                     error=f"模型 {model} 不支持图像理解，请切换到 Vision 模型"
