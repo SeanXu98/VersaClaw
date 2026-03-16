@@ -186,37 +186,44 @@ class StreamProcessor:
         logger.info(f"[StreamProcessor] 请求特征: {features.summary}")
         
         # 智能模型选择
-        if self.model_scheduler and not model:
-            selection = self.model_scheduler.select_model(features)
-            model = selection.model
-            
-            # 发送模型选择事件
-            yield self._format_event(StreamEvent(
-                type="model_selection",
-                data={
-                    "model": selection.model,
-                    "model_type": selection.model_type,
-                    "fallback_used": selection.fallback_used,
-                    "reason": selection.reason,
-                    "features": {
-                        "has_images": features.has_images,
-                        "image_count": features.image_count,
-                        "task_type": features.task_type,
-                    },
-                }
-            ))
-            
-            logger.info(
-                f"[StreamProcessor] 模型选择: {selection.model} "
-                f"(类型: {selection.model_type}, 原因: {selection.reason})"
-            )
+        # 当有图片时，即使有默认模型也要检查是否需要切换到视觉模型
+        if self.model_scheduler:
+            if not model or (images and features.requires_vision):
+                # 没有指定模型，或者有图片需要视觉模型
+                selection = self.model_scheduler.select_model(features)
+                selected_model = selection.model
+                
+                # 发送模型选择事件
+                yield self._format_event(StreamEvent(
+                    type="model_selection",
+                    data={
+                        "model": selection.model,
+                        "model_type": selection.model_type,
+                        "fallback_used": selection.fallback_used,
+                        "reason": selection.reason,
+                        "features": {
+                            "has_images": features.has_images,
+                            "image_count": features.image_count,
+                            "task_type": features.task_type,
+                        },
+                    }
+                ))
+                
+                logger.info(
+                    f"[StreamProcessor] 模型选择: {selection.model} "
+                    f"(类型: {selection.model_type}, 原因: {selection.reason})"
+                )
+                
+                # 如果选择的模型与指定的不同，使用选择的模型
+                if not model or model != selected_model:
+                    model = selected_model
         
         # 检查模型是否支持 Vision（如果有图片）
         if images and model:
             if not self._is_vision_model(model):
                 yield self._format_event(StreamEvent(
                     type="error",
-                    error=f"模型 {model} 不支持图像理解，请切换到 Vision 模型"
+                    error=f"模型 {model} 不支持图像理解，请配置视觉模型 (imageModel)"
                 ))
                 return
 

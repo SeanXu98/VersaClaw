@@ -135,14 +135,16 @@ async def chat_stream(
 
             # 获取请求中的图片（如果有）
             images = request.images
-            model = request.model or (nanobot_service.agent_loop.model if nanobot_service.agent_loop else None)
+            # 不自动填充 model，让 StreamProcessor 进行智能选择
+            # 只有用户明确指定模型时才使用指定的模型
+            model = request.model  # 可能为 None，由 StreamProcessor 自动选择
 
-            # 如果指定了模型，临时切换
+            # 如果用户指定了模型，临时切换
             original_model = None
             if request.model and nanobot_service.agent_loop:
                 original_model = nanobot_service.agent_loop.model
                 nanobot_service.agent_loop.model = request.model
-                logger.info(f"[流式聊天] 使用模型: {request.model}")
+                logger.info(f"[流式聊天] 用户指定模型: {request.model}")
 
             try:
                 # 构建消息内容（支持多模态）

@@ -200,6 +200,13 @@ export default function ChatPage() {
   const [selectedModel, setSelectedModel] = useState<string>('')
   const [showModelSelector, setShowModelSelector] = useState(false)
 
+  // 模型配置状态（用于自动模型选择）
+  const [modelConfig, setModelConfig] = useState<{
+    mainModel: string | null
+    visionModels: string[]
+    hasVisionModel: boolean
+  }>({ mainModel: null, visionModels: [], hasVisionModel: false })
+
   // 流式消息相关状态
   const [isStreaming, setIsStreaming] = useState(false)
   const [streamingContent, setStreamingContent] = useState('')
@@ -255,7 +262,25 @@ export default function ChatPage() {
   useEffect(() => {
     loadSessions()
     loadAvailableModels()
+    loadModelConfig()
   }, [])
+
+  // 加载模型配置
+  const loadModelConfig = async () => {
+    try {
+      const response = await fetch('/api/models/config')
+      const data = await response.json()
+      if (data.success) {
+        setModelConfig({
+          mainModel: data.data.model || null,
+          visionModels: data.data.visionModels || [],
+          hasVisionModel: (data.data.visionModels?.length || 0) > 0
+        })
+      }
+    } catch (error) {
+      console.error('Failed to load model config:', error)
+    }
+  }
 
   useEffect(() => {
     if (currentSession) {
@@ -780,12 +805,12 @@ export default function ChatPage() {
                           onClick={() => setShowModelSelector(!showModelSelector)}
                           className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-sm text-slate-700 transition-colors"
                         >
-                          {isVisionModel() && (
+                          {selectedModel && isVisionModel() && (
                             <span title="支持图片">
                               <Eye className="w-3.5 h-3.5 text-purple-500" />
                             </span>
                           )}
-                          <span className="font-medium">{selectedModel || '选择模型'}</span>
+                          <span className="font-medium">{selectedModel || '自动选择'}</span>
                           <ChevronDown className="w-4 h-4" />
                         </button>
 
@@ -795,34 +820,73 @@ export default function ChatPage() {
                               className="fixed inset-0 z-10"
                               onClick={() => setShowModelSelector(false)}
                             />
-                            <div className="absolute right-0 mt-1 w-72 bg-white rounded-lg shadow-lg border border-slate-200 z-20 max-h-80 overflow-auto">
-                              {availableModels.map((provider) => (
-                                <div key={provider.provider} className="border-b border-slate-100 last:border-b-0">
-                                  <div className="px-3 py-2 text-xs font-semibold text-slate-500 bg-slate-50 uppercase sticky top-0">
-                                    {provider.provider}
+                            <div className="absolute right-0 mt-1 w-80 bg-white rounded-lg shadow-lg border border-slate-200 z-20 max-h-96 overflow-auto">
+                              {/* 自动选择选项 */}
+                              <div className="border-b border-slate-200 p-2 bg-blue-50">
+                                <button
+                                  onClick={() => {
+                                    setSelectedModel('')
+                                    setShowModelSelector(false)
+                                  }}
+                                  className={`w-full text-left px-3 py-2 text-sm rounded-lg transition-colors flex items-center gap-2 ${
+                                    !selectedModel ? 'bg-blue-100 text-blue-700' : 'hover:bg-blue-100 text-slate-700'
+                                  }`}
+                                >
+                                  <span className="flex-1">🔄 自动选择模型</span>
+                                  {!selectedModel && <span className="text-xs text-blue-500">当前</span>}
+                                </button>
+                                <p className="text-xs text-slate-500 px-3 mt-1">
+                                  系统将根据内容自动选择主模型或视觉模型
+                                </p>
+                              </div>
+
+                              {/* 当前配置信息 */}
+                              {modelConfig.mainModel && (
+                                <div className="border-b border-slate-100 px-3 py-2 bg-slate-50">
+                                  <div className="text-xs text-slate-500 mb-1">当前配置</div>
+                                  <div className="flex items-center gap-2 text-xs">
+                                    <span className="text-slate-700">主模型: <span className="font-medium">{modelConfig.mainModel}</span></span>
+                                    {modelConfig.hasVisionModel && (
+                                        <span className="text-purple-600">
+                                          <Eye className="w-3 h-3 inline mr-0.5" />
+                                          视觉: {modelConfig.visionModels[0]}
+                                        </span>
+                                    )}
                                   </div>
-                                  {provider.models.map((model) => {
-                                    const isVision = provider.vision_models?.includes(model)
-                                    return (
-                                      <button
-                                        key={model}
-                                        onClick={() => {
-                                          setSelectedModel(model)
-                                          setShowModelSelector(false)
-                                        }}
-                                        className={`w-full text-left px-3 py-2 text-sm hover:bg-blue-50 transition-colors flex items-center gap-2 ${
-                                          selectedModel === model ? 'bg-blue-50 text-blue-700' : 'text-slate-700'
-                                        }`}
-                                      >
-                                        {isVision && (
-                                          <Eye className="w-3.5 h-3.5 text-purple-500 flex-shrink-0" />
-                                        )}
-                                        <span className="truncate">{model}</span>
-                                      </button>
-                                    )
-                                  })}
                                 </div>
-                              ))}
+                              )}
+
+                              {/* 手动选择模型列表 */}
+                              <div className="p-2">
+                                <div className="text-xs text-slate-400 px-2 py-1">或手动选择模型</div>
+                                {availableModels.map((provider) => (
+                                  <div key={provider.provider} className="border-b border-slate-100 last:border-b-0">
+                                    <div className="px-2 py-1.5 text-xs font-semibold text-slate-500 bg-slate-50 uppercase sticky top-0">
+                                      {provider.provider}
+                                    </div>
+                                    {provider.models.map((model) => {
+                                      const isVision = provider.vision_models?.includes(model)
+                                      return (
+                                        <button
+                                          key={model}
+                                          onClick={() => {
+                                            setSelectedModel(model)
+                                            setShowModelSelector(false)
+                                          }}
+                                          className={`w-full text-left px-2 py-1.5 text-sm hover:bg-blue-50 transition-colors flex items-center gap-2 rounded ${
+                                            selectedModel === model ? 'bg-blue-50 text-blue-700' : 'text-slate-700'
+                                          }`}
+                                        >
+                                          {isVision && (
+                                            <Eye className="w-3.5 h-3.5 text-purple-500 flex-shrink-0" />
+                                          )}
+                                          <span className="truncate">{model}</span>
+                                        </button>
+                                      )
+                                    })}
+                                  </div>
+                                ))}
+                              </div>
                             </div>
                           </>
                         )}
@@ -839,12 +903,16 @@ export default function ChatPage() {
                     <MessageSquare className="w-12 h-12 mx-auto mb-4 text-slate-400" />
                     <p className="text-lg">开始新对话</p>
                     <p className="text-sm mt-2">输入消息开始与 Nanobot 聊天</p>
-                    {isVisionModel() && (
+                    {modelConfig.hasVisionModel ? (
                       <p className="text-xs mt-2 text-purple-500">
                         <Eye className="w-3 h-3 inline mr-1" />
-                        当前模型支持图片理解
+                        支持图片理解，系统将自动选择模型
                       </p>
-                    )}
+                    ) : modelConfig.mainModel ? (
+                      <p className="text-xs mt-2 text-slate-400">
+                        当前模型: {modelConfig.mainModel}
+                      </p>
+                    ) : null}
                   </div>
                 ) : (
                   <>
@@ -1014,8 +1082,8 @@ export default function ChatPage() {
           {/* 输入区域 */}
           <div className="border-t border-slate-200 bg-white flex-shrink-0">
             <div className="max-w-3xl mx-auto p-4">
-              {/* 图片上传区域 - 仅 Vision 模型显示 */}
-              {isVisionModel() && (
+              {/* 图片上传区域 - 配置了视觉模型时显示 */}
+              {modelConfig.hasVisionModel && (
                 <div className="mb-3">
                   <ImageUploader
                     onUploadSuccess={handleImageUploadSuccess}
@@ -1034,7 +1102,7 @@ export default function ChatPage() {
                   type="text"
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
-                  placeholder={isVisionModel() ? "输入消息... (可上传图片)" : "输入消息... (按 Enter 发送)"}
+                  placeholder={modelConfig.hasVisionModel ? "输入消息... (可上传图片，系统自动选择模型)" : "输入消息... (按 Enter 发送)"}
                   disabled={loading && !isStreaming}
                   className="flex-1 px-4 py-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-slate-100 disabled:opacity-50"
                 />

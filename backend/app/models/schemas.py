@@ -15,7 +15,8 @@ API 数据模型模块
     from app.models.schemas import ChatRequest, ChatResponse
 """
 from typing import Optional, List
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, ConfigDict
+from pydantic.alias_generators import to_camel
 
 
 class ImageData(BaseModel):
@@ -106,3 +107,37 @@ class ProviderConfigRequest(BaseModel):
     api_base: Optional[str] = None
     models: Optional[List[str]] = None
     extra_headers: Optional[dict] = None
+
+
+class ImageModelConfigRequest(BaseModel):
+    """
+    视觉模型配置请求模型
+
+    用于配置视觉模型及其降级链。
+
+    属性:
+        primary: 首选视觉模型
+        fallbacks: 备选模型列表（按优先级排序）
+        auto_switch: 是否自动切换到视觉模型（当检测到图片时）
+    """
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    primary: Optional[str] = None
+    fallbacks: Optional[List[str]] = None
+    auto_switch: bool = True
+
+
+class ModelConfigRequest(BaseModel):
+    """
+    模型配置请求模型
+
+    用于配置主模型和视觉模型。
+
+    属性:
+        model: 主模型（文本对话默认使用）
+        image_model: 视觉模型配置
+    """
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    model: Optional[str] = None
+    image_model: Optional[ImageModelConfigRequest] = None

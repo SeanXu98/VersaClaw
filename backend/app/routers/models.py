@@ -20,7 +20,7 @@ from fastapi import APIRouter, Depends
 
 from app.services.nanobot_service import NanobotService
 from app.dependencies import get_nanobot_service, get_nanobot_service_optional
-from app.models.schemas import ProviderConfigRequest
+from app.models.schemas import ProviderConfigRequest, ModelConfigRequest
 from app.config import PROVIDER_METADATA
 from app.utils.vision import is_vision_model
 from app.utils.helpers import read_config_file, write_config_file
@@ -298,4 +298,142 @@ async def delete_provider_config(
 
     except Exception as e:
         logger.error(f"[模型管理] 删除 Provider 配置失败: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@router.get("/config")
+async def get_model_config():
+    """
+    获取当前模型配置
+
+    返回主模型和视觉模型的配置信息。
+
+    响应:
+        - success: 是否成功
+        - data.model: 主模型名称
+        - data.imageModel: 视觉模型配置
+            - primary: 首选视觉模型
+            - fallbacks: 备选模型列表
+            - autoSwitch: 是否自动切换
+        - data.allModels: 所有已配置的模型列表（来自所有 Provider）
+        - data.visionModels: 支持视觉能力的模型列表
+    """
+    try:
+        config_data, error = read_config_file()
+
+        if error and "不存在" not in error and "not found" not in error.lower():
+            return {"success": False, "error": error}
+
+        config_data = config_data or {}
+
+        # 获取主模型
+        agents_config = config_data.get("agents", {})
+        defaults = agents_config.get("defaults", {})
+        main_model = defaults.get("model")
+
+        # 获取视觉模型配置
+        image_model_config = defaults.get("imageModel", {})
+
+        # 收集所有已配置的模型
+        all_models = []
+        providers_config = config_data.get("providers", {})
+        for provider_name, provider_config in providers_config.items():
+            if provider_config.get("api_key"):
+                models = provider_config.get("models", [])
+                all_models.extend(models)
+
+        # 去重
+        all_models = list(dict.fromkeys(all_models))
+
+        # 识别视觉模型
+        vision_models = [m for m in all_models if is_vision_model(m)]
+
+        return {
+            "success": True,
+            "data": {
+                "model": main_model,
+                "imageModel": {
+                    "primary": image_model_config.get("primary"),
+                    "fallbacks": image_model_config.get("fallbacks", []),
+                    "autoSwitch": image_model_config.get("autoSwitch", True)
+                },
+                "allModels": all_models,
+                "visionModels": vision_models
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"[模型管理] 获取模型配置失败: {e}")
+        return {"success": False, "error": str(e)}
+
+
+@router.post("/config")
+async def update_model_config(
+    request: ModelConfigRequest,
+    service: NanobotService = Depends(get_nanobot_service_optional)
+):
+    """
+    更新模型配置
+
+    更新主模型和/或视觉模型配置。
+
+    请求体:
+        - model: 主模型名称（可选）
+        - imageModel: 视觉模型配置（可选）
+            - primary: 首选视觉模型
+            - fallbacks: 备选模型列表
+            - autoSwitch: 是否自动切换
+
+    响应:
+        - success: 是否成功
+        - data.message: 成功消息
+    """
+    try:
+        config_data, error = read_config_file()
+
+        if error and "不存在" not in error and "not found" not in error.lower():
+            return {"success": False, "error": error}
+
+        config_data = config_data or {}
+
+        # 确保 agents.defaults 存在
+        if "agents" not in config_data:
+            config_data["agents"] = {}
+        if "defaults" not in config_data["agents"]:
+            config_data["agents"]["defaults"] = {}
+
+        # 更新主模型
+        if request.model:
+            config_data["agents"]["defaults"]["model"] = request.model
+            logger.info(f"[模型管理] 更新主模型: {request.model}")
+
+        # 更新视觉模型配置
+        if request.image_model:
+            image_model_config = config_data["agents"]["defaults"].get("imageModel", {})
+
+            if request.image_model.primary is not None:
+                image_model_config["primary"] = request.image_model.primary
+
+            if request.image_model.fallbacks is not None:
+                image_model_config["fallbacks"] = request.image_model.fallbacks
+
+            if request.image_model.auto_switch is not None:
+                image_model_config["autoSwitch"] = request.image_model.auto_switch
+
+            config_data["agents"]["defaults"]["imageModel"] = image_model_config
+            logger.info(f"[模型管理] 更新视觉模型配置: {image_model_config}")
+
+        # 写入配置
+        success, error = write_config_file(config_data)
+        if not success:
+            return {"success": False, "error": error}
+
+        # 如果服务已初始化，重新加载
+        if service and service.is_initialized:
+            await service.reload()
+
+        return {"success": True, "data": {"message": "模型配置已更新"}}
+
+    except Exception as e:
+        logger.error(f"[模型管理] 更新模型配置失败: {e}")
         return {"success": False, "error": str(e)}

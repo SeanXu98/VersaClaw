@@ -36,7 +36,6 @@ from loguru import logger
 
 from nanobot.agent.loop import AgentLoop
 from nanobot.agent.context import ContextBuilder
-from nanobot.agent.memory import MemoryConsolidator
 from nanobot.agent.subagent import SubagentManager
 from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.agent.tools.filesystem import ReadFileTool, WriteFileTool, EditFileTool, ListDirTool
@@ -55,7 +54,7 @@ from app.extension.feature_analyzer import RequestFeatureAnalyzer, RequestFeatur
 from app.extension.config_extension import ExtendedConfig
 
 if TYPE_CHECKING:
-    from nanobot.config.schema import ChannelsConfig, ExecToolConfig, WebSearchConfig
+    from nanobot.config.schema import ChannelsConfig, ExecToolConfig
     from nanobot.cron.service import CronService
 
 
@@ -88,8 +87,11 @@ class EnhancedAgentLoop(AgentLoop):
         workspace: Path,
         model: str | None = None,
         max_iterations: int = 40,
-        context_window_tokens: int = 65_536,
-        web_search_config: "WebSearchConfig | None" = None,
+        temperature: float = 0.1,
+        max_tokens: int = 4096,
+        memory_window: int = 100,
+        reasoning_effort: str | None = None,
+        brave_api_key: str | None = None,
         web_proxy: str | None = None,
         exec_config: "ExecToolConfig | None" = None,
         cron_service: "CronService | None" = None,
@@ -109,8 +111,11 @@ class EnhancedAgentLoop(AgentLoop):
             workspace: 工作空间路径
             model: 默认模型
             max_iterations: 最大迭代次数
-            context_window_tokens: 上下文窗口大小
-            web_search_config: Web 搜索配置
+            temperature: 温度参数
+            max_tokens: 最大 token 数
+            memory_window: 记忆窗口大小
+            reasoning_effort: 推理强度
+            brave_api_key: Brave 搜索 API Key
             web_proxy: Web 代理
             exec_config: 执行工具配置
             cron_service: 定时任务服务
@@ -127,8 +132,11 @@ class EnhancedAgentLoop(AgentLoop):
             workspace=workspace,
             model=model,
             max_iterations=max_iterations,
-            context_window_tokens=context_window_tokens,
-            web_search_config=web_search_config,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            memory_window=memory_window,
+            reasoning_effort=reasoning_effort,
+            brave_api_key=brave_api_key,
             web_proxy=web_proxy,
             exec_config=exec_config,
             cron_service=cron_service,
