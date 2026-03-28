@@ -140,7 +140,8 @@ class VisionAgentManager:
             if on_progress:
                 on_progress(f"正在使用 {self._vision_model} 分析图片...")
             
-            response = await self.provider.chat_with_retry(
+            # 使用 chat() 方法（LiteLLMProvider 的原生方法）
+            response = await self.provider.chat(
                 messages=messages,
                 model=self._vision_model,
             )

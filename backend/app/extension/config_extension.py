@@ -62,6 +62,48 @@ class ModelFallbackConfig(BaseModel):
     retry_delay: float = 1.0
 
 
+class AgentTeamConfig(BaseModel):
+    """
+    Agent Team 配置
+    
+    配置子代理团队的默认行为。
+    
+    Attributes:
+        enabled: 是否启用 Agent Team 功能
+        max_parallel_agents: 最大并行子代理数
+        default_coordination_mode: 默认协作模式
+        default_aggregation_strategy: 默认聚合策略
+        timeout: 默认超时时间（秒）
+    """
+    
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+    
+    enabled: bool = True
+    max_parallel_agents: int = 3
+    default_coordination_mode: str = "parallel"  # parallel, sequential, hierarchical
+    default_aggregation_strategy: str = "combine"  # combine, summarize, vote
+    timeout: float = 300.0  # 5 分钟
+
+
+class LangGraphConfig(BaseModel):
+    """
+    LangGraph 配置
+    
+    配置 LangGraph 相关设置。
+    
+    Attributes:
+        enabled: 是否启用 LangGraph 模式
+        enable_checkpoints: 是否启用检查点
+        max_iterations: 最大迭代次数
+    """
+    
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+    
+    enabled: bool = True
+    enable_checkpoints: bool = True
+    max_iterations: int = 40
+
+
 class ExtendedAgentDefaults(BaseModel):
     """
     扩展的 Agent 默认配置
@@ -69,6 +111,8 @@ class ExtendedAgentDefaults(BaseModel):
     在 Nanobot 原有配置基础上增加：
     - image_model: 视觉模型配置
     - model_fallback: 模型降级配置
+    - agent_team: Agent Team 配置
+    - langgraph: LangGraph 配置
     
     向后兼容：新字段有默认值，旧配置无需修改
     """
@@ -90,10 +134,26 @@ class ExtendedAgentDefaults(BaseModel):
     # 新增字段：模型降级配置
     model_fallback: ModelFallbackConfig = Field(default_factory=ModelFallbackConfig)
     
+    # 新增字段：Agent Team 配置
+    agent_team: AgentTeamConfig = Field(default_factory=AgentTeamConfig)
+    
+    # 新增字段：LangGraph 配置
+    langgraph: LangGraphConfig = Field(default_factory=LangGraphConfig)
+    
     @property
     def has_image_model_configured(self) -> bool:
         """检查是否配置了视觉模型"""
         return self.image_model is not None and self.image_model.primary is not None
+    
+    @property
+    def is_agent_team_enabled(self) -> bool:
+        """检查是否启用了 Agent Team 功能"""
+        return self.agent_team.enabled
+    
+    @property
+    def is_langgraph_enabled(self) -> bool:
+        """检查是否启用了 LangGraph 模式"""
+        return self.langgraph.enabled
     
     def get_image_model(self) -> Optional[str]:
         """获取首选视觉模型"""

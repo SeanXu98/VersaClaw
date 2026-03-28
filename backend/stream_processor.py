@@ -26,7 +26,7 @@ import logging
 import re
 import uuid
 from pathlib import Path
-from typing import AsyncGenerator, Callable, List, Optional, Any
+from typing import AsyncGenerator, Callable, Dict, List, Optional, Any
 from dataclasses import dataclass
 
 # 导入扩展层组件
@@ -35,8 +35,11 @@ from app.extension import (
     RequestFeatures,
     ModelScheduler,
     ModelSelectionResult,
-    EnhancedAgentLoop,
+    AgentLoopAdapter,
 )
+
+# LangGraph 组件
+from app.langgraph import AgentGraphBuilder
 
 # 配置日志
 logger = logging.getLogger(__name__)
@@ -75,18 +78,41 @@ class StreamEvent:
         return json.dumps(event_dict, ensure_ascii=False)
 
 
-# 心跳事件类型常量
-EVENT_TYPES = {
-    "CONTENT": "content",
-    "REASONING": "reasoning",
-    "TOOL_CALL_START": "tool_call_start",
-    "TOOL_CALL_END": "tool_call_end",
-    "ITERATION_START": "iteration_start",
-    "HEARTBEAT": "heartbeat",
-    "DONE": "done",
-    "ERROR": "error",
-    "MODEL_SELECTION": "model_selection",  # 新增：模型选择事件
-}
+# 配置日志
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class ImageData:
+    """图片数据结构"""
+    id: str
+    url: str
+    thumbnail_url: Optional[str] = None
+    mime_type: str = "image/png"
+    size: Optional[int] = None
+    filename: Optional[str] = None
+    width: Optional[int] = None
+    height: Optional[int] = None
+
+
+@dataclass
+class StreamEvent:
+    """流式事件结构"""
+    type: str
+    content: Optional[str] = None
+    error: Optional[str] = None
+    data: Optional[dict] = None
+
+    def to_json(self) -> str:
+        """转换为 JSON 字符串"""
+        event_dict = {"type": self.type}
+        if self.content is not None:
+            event_dict["content"] = self.content
+        if self.error is not None:
+            event_dict["error"] = self.error
+        if self.data is not None:
+            event_dict.update(self.data)
+        return json.dumps(event_dict, ensure_ascii=False)
 
 
 class StreamProcessor:
@@ -100,6 +126,8 @@ class StreamProcessor:
     - 集成 ModelScheduler 进行智能模型选择
     - 使用 RequestFeatureAnalyzer 分析请求特征
     - 发送模型选择事件通知前端
+    - 支持 LangGraph 多 Agent 模式
+    - 支持 Agent Team 功能
 
     注意：
     - process_direct 方法的 on_progress 回调主要在工具调用时触发
@@ -114,23 +142,26 @@ class StreamProcessor:
         upload_dir: Optional[str] = None,
         vision_check_fn: Optional[Callable[[str], bool]] = None,
         model_scheduler: Optional[ModelScheduler] = None,
+        use_langgraph: bool = True,
     ):
         """
         初始化流式处理器
 
         Args:
-            agent_loop: nanobot AgentLoop 实例（可能是 EnhancedAgentLoop）
+            agent_loop: nanobot AgentLoop 实例（可能是 AgentLoopAdapter）
             upload_dir: 图片上传目录路径
             vision_check_fn: Vision 模型检测函数（已废弃，使用 ModelScheduler）
             model_scheduler: 模型调度器实例
+            use_langgraph: 是否使用 LangGraph 模式
         """
         self.agent_loop = agent_loop
         self.upload_dir = Path(upload_dir or Path.home() / ".nanobot" / "uploads" / "images")
+        self.use_langgraph = use_langgraph
         
         # 初始化模型调度器
         if model_scheduler:
             self.model_scheduler = model_scheduler
-        elif isinstance(agent_loop, EnhancedAgentLoop):
+        elif isinstance(agent_loop, AgentLoopAdapter):
             self.model_scheduler = agent_loop.get_scheduler()
         else:
             # 兼容旧逻辑
@@ -352,6 +383,8 @@ class StreamProcessor:
         """
         处理消息内容
 
+        优先使用 LangGraph 进行 Agent 编排，支持 VisionRouter 路由。
+
         Args:
             content: 消息内容
             session_key: 会话标识
@@ -362,7 +395,40 @@ class StreamProcessor:
         Returns:
             包含 content 和 reasoning_content 的字典
         """
+        # 提取文本内容
         message_text = content
+        if isinstance(content, list):
+            # 从多模态内容中提取文本
+            text_parts = []
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "text":
+                    text_parts.append(block.get("text", ""))
+            message_text = "\n".join(text_parts)
+
+        # 优先使用 LangGraph 进行处理（如果 agent_loop 是 AgentLoopAdapter）
+        if self.use_langgraph and isinstance(self.agent_loop, AgentLoopAdapter):
+            logger.info("[StreamProcessor] 使用 LangGraph 进行 Agent 编排")
+            
+            # 准备图片数据
+            image_data = None
+            if images:
+                image_data = [
+                    {"id": img.id, "url": img.url}
+                    for img in images
+                ]
+            
+            # 调用 EnhancedAgentLoop.process() -> LangGraph 图
+            result = await self._process_with_langgraph(
+                message_text=message_text,
+                session_key=session_key,
+                channel=channel,
+                images=image_data
+            )
+            return result
+
+        # 降级：使用 Nanobot 原生处理
+        logger.info("[StreamProcessor] 使用 Nanobot 原生处理")
+        
         media_files = []
         original_image_ids = []
 
@@ -372,17 +438,15 @@ class StreamProcessor:
 
         # 根据是否有媒体文件选择处理方式
         if media_files:
-            # 使用 _process_message 支持 media 参数
             result = await self._process_with_media(
                 message_text=message_text,
                 media_files=media_files,
                 session_key=session_key,
                 channel=channel,
                 on_progress=on_progress,
-                images=images  # 传递原始图片信息，用于不删除已上传的图片
+                images=images
             )
         else:
-            # 使用 _process_message 直接获取完整响应
             result = await self._process_direct_with_reasoning(
                 message_text=message_text,
                 session_key=session_key,
@@ -515,6 +579,70 @@ class StreamProcessor:
         except Exception as e:
             print(f"Error saving base64 image: {e}")
             return None
+
+    async def _process_with_langgraph(
+        self,
+        message_text: str,
+        session_key: str,
+        channel: str,
+        images: Optional[List[Dict[str, Any]]] = None
+    ) -> dict:
+        """
+        使用 LangGraph 进行 Agent 编排处理
+
+        通过 AgentLoopAdapter.process() 委托给 LangGraph 图执行，
+        支持 VisionRouter 自动路由到 VisionAgentNode。
+
+        Args:
+            message_text: 消息文本
+            session_key: 会话标识
+            channel: 渠道标识
+            images: 图片数据列表 [{"id": ..., "url": ...}]
+
+        Returns:
+            包含 content 和 reasoning_content 的字典
+        """
+        try:
+            # 调用 AgentLoopAdapter.process() -> LangGraph 图
+            result = await self.agent_loop.process(
+                content=message_text,
+                session_key=session_key,
+                channel=channel,
+                images=images,
+            )
+
+            # 尝试从 session 获取 reasoning 内容
+            reasoning_content = None
+            thinking_blocks = None
+            if hasattr(self.agent_loop, 'sessions'):
+                try:
+                    session = self.agent_loop.sessions.get_or_create(session_key)
+                    history = session.get_history(max_messages=3)
+                    if history:
+                        for msg in reversed(history):
+                            if msg.get("role") == "assistant":
+                                reasoning_content = msg.get("reasoning_content")
+                                thinking_blocks = msg.get("thinking_blocks")
+                                break
+                except Exception as e:
+                    logger.debug(f"Failed to get reasoning from session: {e}")
+
+            return {
+                "content": result or "",
+                "reasoning_content": reasoning_content,
+                "thinking_blocks": thinking_blocks
+            }
+
+        except Exception as e:
+            logger.error(f"LangGraph processing failed: {e}")
+            import traceback
+            traceback.print_exc()
+            # 降级：返回错误信息
+            return {
+                "content": f"处理过程中发生错误: {str(e)}",
+                "reasoning_content": None,
+                "thinking_blocks": None
+            }
 
     async def _process_with_media(
         self,

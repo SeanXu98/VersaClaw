@@ -342,7 +342,7 @@ class ModelScheduler:
         **kwargs,
     ) -> Any:
         """
-        调用 Provider 的 chat_with_retry 方法
+        调用 Provider 的 chat 方法（带重试逻辑）
         
         封装 Provider 调用，自动记录成功/失败状态。
         
@@ -356,7 +356,7 @@ class ModelScheduler:
             LLMResponse: LLM 响应
         """
         try:
-            response = await self.provider.chat_with_retry(
+            response = await self.provider.chat(
                 messages=messages,
                 tools=tools,
                 model=model,

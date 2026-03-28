@@ -45,8 +45,8 @@ export async function GET(
 
     const apiData = await apiResponse.json()
     if (!apiData.success) {
-      // 会话不存在时，返回空消息列表
-      if (apiData.error === 'Session not found') {
+      // 会话不存在时，返回空消息列表（支持中文和英文错误信息）
+      if (apiData.error === 'Session not found' || apiData.error === '会话不存在') {
         return NextResponse.json({
           data: {
             key: sessionKey,

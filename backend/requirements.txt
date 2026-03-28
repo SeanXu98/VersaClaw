@@ -4,6 +4,11 @@
 # Core dependency: Nanobot AI framework (from PyPI)
 nanobot-ai>=0.1.4.post3
 
+# LangGraph for Multi-Agent orchestration
+langgraph>=0.2.0
+langchain-core>=0.3.0
+langchain-openai>=0.2.0
+
 # FastAPI framework and server
 fastapi>=0.100.0
 uvicorn[standard]>=0.23.0
@@ -14,3 +19,7 @@ httpx[socks]>=0.25.0
 
 # Image processing (for thumbnails)
 Pillow>=10.0.0
+
+# Type hints and validation
+pydantic>=2.0.0
+typing-extensions>=4.0.0
